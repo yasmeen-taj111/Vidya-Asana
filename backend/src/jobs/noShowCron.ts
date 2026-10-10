@@ -21,7 +21,10 @@ export function startNoShowCron() {
 
 async function processSlotStartReminders() {
   const now = new Date();
-  const todayStr = now.toISOString().substring(0, 10);
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const todayStr = `${year}-${month}-${day}`;
   const currentH = String(now.getHours()).padStart(2, '0');
   const currentM = String(now.getMinutes()).padStart(2, '0');
   const currentTime = `${currentH}:${currentM}`;
@@ -38,12 +41,13 @@ async function processSlotStartReminders() {
      WHERE b.booking_date = ?
        AND b.status = 'CONFIRMED'
        AND b.reminder_sent_at IS NULL
-       AND sl.start_time <= ?`,
-    [todayStr, currentTime]
+       AND sl.start_time <= ?
+       AND sl.end_time > ?`,
+    [todayStr, currentTime, currentTime]
   );
 
   for (const b of rows) {
-    await query(`UPDATE bookings SET reminder_sent_at = NOW() WHERE id = ?`, [b.id]);
+    await query(`UPDATE bookings SET reminder_sent_at = UTC_TIMESTAMP() WHERE id = ?`, [b.id]);
 
     const graceUntilIso = new Date(b.grace_until).toISOString();
     const message = `Your study slot at ${b.library_name} (Seat ${b.seat_label}) has started. Please scan your check-in QR or confirm your arrival.`;
@@ -81,7 +85,7 @@ async function processNoShows() {
      JOIN libraries l ON l.id = b.library_id
      JOIN seats s ON s.id = b.seat_id
      WHERE b.status = 'CONFIRMED'
-       AND b.grace_until <= NOW()`
+       AND b.grace_until <= UTC_TIMESTAMP()`
   );
 
   for (const b of expiredBookings) {
@@ -121,7 +125,7 @@ async function processNoShows() {
 async function processExpiredWaitlists() {
   const expiredWaitlists = await query<any[]>(
     `SELECT * FROM waitlist_entries
-     WHERE status = 'NOTIFIED' AND claim_expires_at <= NOW()`
+     WHERE status = 'NOTIFIED' AND claim_expires_at <= UTC_TIMESTAMP()`
   );
 
   for (const w of expiredWaitlists) {

@@ -123,6 +123,32 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
     }
     const slot = slotRows[0];
 
+    // Validate slot has not already ended if booking for today
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const curDay = String(now.getDate()).padStart(2, '0');
+    const localTodayStr = `${curYear}-${curMonth}-${curDay}`;
+
+    if (date < localTodayStr) {
+      return sendError(res, 'BAD_REQUEST', 'Cannot make a booking for a past date. Please select today or an upcoming date.', 400);
+    }
+
+    if (date === localTodayStr) {
+      const curH = String(now.getHours()).padStart(2, '0');
+      const curM = String(now.getMinutes()).padStart(2, '0');
+      const curTime = `${curH}:${curM}`;
+
+      if (slot.end_time <= curTime) {
+        return sendError(
+          res,
+          'BAD_REQUEST',
+          `The ${slot.name} slot (${slot.start_time} - ${slot.end_time}) has already ended for today. Please select an upcoming slot or a future date.`,
+          400
+        );
+      }
+    }
+
     // Check user overlapping bookings on same date
     const userActiveBookings = await query<any[]>(
       `SELECT b.id, sl.start_time, sl.end_time
@@ -262,13 +288,22 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       );
     }
 
-    // Calculate graceUntil: slotStart + 30m
+    // Calculate graceUntil:
+    // Slot start time on the booking date in local time
     const [startHour, startMin] = slot.start_time.split(':').map(Number);
-    const graceDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
-    graceDate.setMinutes(graceDate.getMinutes() + 30);
-    // If grace is in the past (e.g. booked halfway into slot today), set 30 min from now
-    const now = new Date();
-    const finalGraceUntil = graceDate > now ? graceDate : new Date(now.getTime() + 30 * 60 * 1000);
+    const [endHour, endMin] = slot.end_time.split(':').map(Number);
+
+    const slotStartDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
+    const slotEndDate = new Date(`${date}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`);
+    const defaultGraceDate = new Date(slotStartDate.getTime() + 30 * 60 * 1000);
+
+    let finalGraceUntil = defaultGraceDate;
+
+    const isOngoing = slotStartDate <= now && now < slotEndDate;
+    if (isOngoing) {
+      const graceFromNow = new Date(now.getTime() + 30 * 60 * 1000);
+      finalGraceUntil = graceFromNow < slotEndDate ? graceFromNow : slotEndDate;
+    }
 
     const bookingId = generateUUID();
     const code = generateBookingCode();
@@ -279,8 +314,8 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
     await query(
       `INSERT INTO bookings (
         id, code, library_id, seat_id, slot_id, user_id, booking_date, status, source,
-        price_paise, payment_status, grace_until, arrival_confirmed, qr_secret, idempotency_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'ONLINE', ?, ?, ?, 0, ?, ?, NOW())`,
+        price_paise, payment_status, grace_until, arrival_confirmed, reminder_sent_at, qr_secret, idempotency_key, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'ONLINE', ?, ?, ?, 0, ${isOngoing ? 'UTC_TIMESTAMP()' : 'NULL'}, ?, ?, UTC_TIMESTAMP())`,
       [
         bookingId,
         code,
