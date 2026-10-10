@@ -87,23 +87,51 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
   const handleCellClick = (row: number, col: number) => {
     setSelectedCellPos({ row, col });
 
-    // If a tool other than default select is clicked, apply it
+    const updated = JSON.parse(JSON.stringify(grids)) as FloorGrid[];
+    const floor = updated[activeFloorIndex];
+    if (!floor) return;
+
+    const cell = floor.cells.find((c) => c.row === row && c.col === col);
+    if (!cell) return;
+
+    let changed = false;
+
     if (activeTool === 'ERASE') {
-      const updated = JSON.parse(JSON.stringify(grids)) as FloorGrid[];
-      const cell = updated[activeFloorIndex].cells.find((c) => c.row === row && c.col === col);
-      if (cell) {
+      if (cell.type !== 'EMPTY') {
         cell.type = 'EMPTY';
         delete cell.seat;
-        pushState(updated);
+        changed = true;
       }
-    } else if (activeTool !== 'SEAT') {
-      const updated = JSON.parse(JSON.stringify(grids)) as FloorGrid[];
-      const cell = updated[activeFloorIndex].cells.find((c) => c.row === row && c.col === col);
-      if (cell) {
+    } else if (activeTool === 'SEAT') {
+      if (cell.type !== 'SEAT' || !cell.seat) {
+        cell.type = 'SEAT';
+        const seatLabel = `F${floor.floorNumber}-${String.fromCharCode(65 + row)}${col + 1}`;
+        cell.seat = {
+          id: `seat-${floor.floorId}-${row}-${col}`,
+          floorId: floor.floorId,
+          label: seatLabel,
+          seatType: 'INDIVIDUAL',
+          facing: row % 2 === 0 ? 'N' : 'S',
+          attributes: {
+            window: col === 0 || col === floor.cols - 1,
+            powerOutlet: true,
+            quietZone: row < Math.ceil(floor.rows / 3),
+            nearDoor: row >= floor.rows - 2 && col <= 2,
+          },
+          isActive: true,
+        };
+        changed = true;
+      }
+    } else {
+      if (cell.type !== activeTool) {
         cell.type = activeTool;
         delete cell.seat;
-        pushState(updated);
+        changed = true;
       }
+    }
+
+    if (changed) {
+      pushState(updated);
     }
   };
 
@@ -435,61 +463,72 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
           {/* Visual Grid Canvas */}
           <div className="lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
             {/* Palette Tools Toolbar */}
-            <div className="flex flex-wrap items-center gap-2 pb-4 mb-4 border-b border-slate-100">
-            <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">
-              Palette:
-            </span>
-            <button
-              onClick={() => setActiveTool('SEAT')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
-                activeTool === 'SEAT'
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <Armchair className="w-3.5 h-3.5" /> Seat
-            </button>
-            <button
-              onClick={() => setActiveTool('AISLE')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
-                activeTool === 'AISLE'
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <Move className="w-3.5 h-3.5" /> Aisle
-            </button>
-            <button
-              onClick={() => setActiveTool('DOOR')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
-                activeTool === 'DOOR'
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <DoorOpen className="w-3.5 h-3.5" /> Door
-            </button>
-            <button
-              onClick={() => setActiveTool('WINDOW_WALL')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
-                activeTool === 'WINDOW_WALL'
-                  ? 'bg-primary text-white border-primary shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <Sun className="w-3.5 h-3.5" /> Window Wall
-            </button>
-            <button
-              onClick={() => setActiveTool('ERASE')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-medium flex items-center gap-1.5 border transition-all ${
-                activeTool === 'ERASE'
-                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                  : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-              }`}
-            >
-              <Eraser className="w-3.5 h-3.5" /> Erase Cell
-            </button>
-          </div>
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-4 mb-4 border-b border-slate-100">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-1">
+                  Palette:
+                </span>
+                <button
+                  onClick={() => setActiveTool('SEAT')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                    activeTool === 'SEAT'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-md shadow-emerald-600/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="Click to place a Seat on the grid"
+                >
+                  <Armchair className="w-3.5 h-3.5" /> Seat
+                </button>
+                <button
+                  onClick={() => setActiveTool('AISLE')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                    activeTool === 'AISLE'
+                      ? 'bg-slate-700 text-white border-slate-700 shadow-md shadow-slate-700/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="Click to place an Aisle walkway on the grid"
+                >
+                  <Move className="w-3.5 h-3.5" /> Aisle
+                </button>
+                <button
+                  onClick={() => setActiveTool('DOOR')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                    activeTool === 'DOOR'
+                      ? 'bg-teal-600 text-white border-teal-600 shadow-md shadow-teal-600/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="Click to place an Entrance/Exit Door on the grid"
+                >
+                  <DoorOpen className="w-3.5 h-3.5" /> Door
+                </button>
+                <button
+                  onClick={() => setActiveTool('WINDOW_WALL')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                    activeTool === 'WINDOW_WALL'
+                      ? 'bg-sky-600 text-white border-sky-600 shadow-md shadow-sky-600/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="Click to place a Window Wall on the grid"
+                >
+                  <Sun className="w-3.5 h-3.5" /> Window Wall
+                </button>
+                <button
+                  onClick={() => setActiveTool('ERASE')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 border transition-all ${
+                    activeTool === 'ERASE'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-md shadow-rose-600/20'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                  title="Click to erase a cell back to empty (+)"
+                >
+                  <Eraser className="w-3.5 h-3.5" /> Erase Cell
+                </button>
+              </div>
+
+              <div className="text-[11px] font-medium text-slate-500 bg-slate-50 px-2.5 py-1 rounded-lg border border-slate-100">
+                Active tool: <span className="font-bold text-slate-900">{activeTool === 'ERASE' ? 'Erase' : activeTool}</span> • Click any grid cell to apply
+              </div>
+            </div>
 
           {/* Grid Canvas */}
           <div className="overflow-auto max-h-[550px] p-4 bg-slate-50 rounded-2xl border border-slate-100 flex justify-center">
