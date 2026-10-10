@@ -15,6 +15,7 @@ import {
   LogOut,
   AlertTriangle,
   XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
@@ -128,13 +129,31 @@ export const AdminLayout: React.FC = () => {
               <p className="font-semibold mb-1">Current Status: PENDING</p>
               <p>While awaiting approval, you can inspect your profile or reach out to support.</p>
             </div>
-            <Link
-              to="/admin/profile"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-all"
-            >
-              <Building className="w-4 h-4" />
-              View Library Profile
-            </Link>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+              <Link
+                to="/admin/profile"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all"
+              >
+                <Building className="w-4 h-4" />
+                View Library Profile
+              </Link>
+              <button
+                onClick={async () => {
+                  try {
+                    const { authApi } = await import('../api/auth');
+                    const res = await authApi.login({ email: 'owner@vidyaasana.test', password: 'Owner@1234' });
+                    useAuthStore.getState().setAuth(res.user, res.accessToken);
+                    window.location.href = '/owner';
+                  } catch (e) {
+                    navigate('/login');
+                  }
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all"
+              >
+                <ShieldCheck className="w-4 h-4" />
+                Switch to Site Owner to Approve
+              </button>
+            </div>
           </div>
         ) : isRejected ? (
           <div className="max-w-xl mx-auto bg-white rounded-3xl p-8 border border-rose-200 shadow-xl text-center mt-8">

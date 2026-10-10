@@ -20,7 +20,41 @@ export const DevPanel: React.FC = () => {
       u.email.toLowerCase() !== 'student@vidyaasana.test'
   );
 
-  const handleSwitchAccount = (email: string) => {
+  const DEMO_CREDENTIALS: Record<string, string> = {
+    'owner@vidyaasana.test': 'Owner@1234',
+    'admin@vidyaasana.test': 'Admin@1234',
+    'pending@vidyaasana.test': 'Admin@1234',
+    'student@vidyaasana.test': 'Student@1234',
+  };
+
+  const handleSwitchAccount = async (email: string) => {
+    const isMock = import.meta.env.VITE_USE_MOCKS === 'true';
+    if (!isMock && DEMO_CREDENTIALS[email.toLowerCase()]) {
+      try {
+        const { authApi } = await import('../api/auth');
+        const data = await authApi.login({
+          email,
+          password: DEMO_CREDENTIALS[email.toLowerCase()],
+        });
+        setAuth(data.user, data.accessToken);
+        addToast({
+          type: 'success',
+          title: 'Switched Role',
+          message: `Active user changed to ${data.user.name} (${data.user.role})`,
+        });
+        if (data.user.role === 'SITE_OWNER') {
+          window.location.href = '/owner';
+        } else if (data.user.role === 'LIBRARY_ADMIN') {
+          window.location.href = '/admin';
+        } else {
+          window.location.href = '/app';
+        }
+        return;
+      } catch (err: any) {
+        console.error('Failed to switch role via live API:', err);
+      }
+    }
+
     const target = allUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (target) {
       setAuth(target, `dev-token-${target.id}-${Date.now()}`);
@@ -28,7 +62,6 @@ export const DevPanel: React.FC = () => {
         type: 'info',
         title: 'Switched Role',
         message: `Active user changed to ${target.name} (${target.role})`,
-      });
       const dest =
         target.role === 'SITE_OWNER'
           ? '/owner'

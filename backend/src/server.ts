@@ -31,7 +31,20 @@ initSocket(httpServer);
 // Security & utility middlewares
 app.use(
   cors({
-    origin: [env.CLIENT_ORIGIN, 'http://127.0.0.1:5173', 'http://localhost:5173'],
+    origin: (origin, callback) => {
+      const allowed = [
+        env.CLIENT_ORIGIN,
+        'http://localhost:5173',
+        'http://127.0.0.1:5173',
+        'http://localhost:5174',
+        'http://127.0.0.1:5174',
+      ];
+      if (!origin || allowed.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`CORS: origin ${origin} not allowed`));
+      }
+    },
     credentials: true,
   })
 );
