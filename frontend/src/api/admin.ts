@@ -129,12 +129,12 @@ export const adminApi = {
     return (res as unknown as ApiResponse<Booking>).data;
   },
 
-  async getAnalyticsSummary(params?: { date?: string; slotId?: string }): Promise<AnalyticsSummary> {
+  async getAnalyticsSummary(params?: { from?: string; to?: string; date?: string; slotId?: string; floorId?: string }): Promise<AnalyticsSummary> {
     const res = await apiClient.get<ApiResponse<AnalyticsSummary>>('/admin/analytics/summary', { params });
     return (res as unknown as ApiResponse<AnalyticsSummary>).data;
   },
 
-  async getAnalyticsTimeseries(params?: { from?: string; to?: string; groupBy?: 'day' | 'slot' | 'seatType' }): Promise<{ points: AnalyticsTimeseriesPoint[] }> {
+  async getAnalyticsTimeseries(params?: { from?: string; to?: string; groupBy?: 'day' | 'slot' | 'seatType'; floorId?: string }): Promise<{ points: AnalyticsTimeseriesPoint[] }> {
     const res = await apiClient.get<ApiResponse<{ points: AnalyticsTimeseriesPoint[] }>>('/admin/analytics/timeseries', { params });
     return (res as unknown as ApiResponse<{ points: AnalyticsTimeseriesPoint[] }>).data;
   },

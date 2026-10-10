@@ -149,7 +149,7 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
     const held = await query<any[]>(
       `SELECT * FROM waitlist_entries
        WHERE seat_id = ? AND slot_id = ? AND booking_date = ?
-         AND status = 'NOTIFIED' AND claim_expires_at > NOW()`,
+         AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()`,
       [seatId, slotId, date]
     );
     if (held.length > 0 && held[0].user_id !== userId) {
@@ -194,7 +194,7 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
            )
            AND s.id NOT IN (
              SELECT seat_id FROM waitlist_entries
-             WHERE slot_id = ? AND booking_date = ? AND status = 'NOTIFIED' AND claim_expires_at > NOW()
+             WHERE slot_id = ? AND booking_date = ? AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()
            )
          LIMIT 15`,
         [libraryId, seatId, libraryId, date, slotId, slotId, date]

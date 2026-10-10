@@ -3,6 +3,8 @@ import { adminApi } from '../../api/admin';
 import { FloorGrid, TimeSlot, Seat, Booking } from '../../api/types';
 import { SeatGrid } from '../../components/SeatGrid/SeatGrid';
 import { useUiStore } from '../../store/uiStore';
+import { useAuthStore } from '../../store/authStore';
+import { useSeatUpdates } from '../../realtime/useSeatUpdates';
 import { UserPlus, LogOut, CheckCircle2, Clock, User, Armchair, X } from 'lucide-react';
 
 export const WalkIn: React.FC = () => {
@@ -12,6 +14,7 @@ export const WalkIn: React.FC = () => {
   const [grids, setGrids] = useState<FloorGrid[]>([]);
   const [activeFloorIndex, setActiveFloorIndex] = useState(0);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const { user } = useAuthStore();
 
   // Action states
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
@@ -71,6 +74,10 @@ export const WalkIn: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [date, selectedSlotId]);
+
+  useSeatUpdates(user?.libraryId, () => {
+    loadData();
+  });
 
   const handleSeatClick = (seat: Seat) => {
     // Check if booked

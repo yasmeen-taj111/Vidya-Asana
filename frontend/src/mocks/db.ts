@@ -196,13 +196,13 @@ export const mockSlots: TimeSlot[] = [
 // Build floor grids for Central Study Hub
 export function createDefaultFloorGrid(floorId: string, floorNumber: number, label: string, rows = 5, cols = 6): FloorGrid {
   const cells: FloorGrid['cells'] = [];
-
   let seatIndex = 1;
-  const aisleCol = cols > 4 ? Math.floor(cols / 2) : -1; // Place aisle at midpoint for wider grids
+
+  const aisleCol = cols > 4 ? (cols === 6 ? 2 : Math.floor((cols - 1) / 2)) : -1;
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      // Create aisle in the middle column
+      // Create aisle in column 2 (or midpoint)
       if (c === aisleCol) {
         cells.push({ row: r, col: c, type: 'AISLE' });
         continue;
@@ -210,11 +210,6 @@ export function createDefaultFloorGrid(floorId: string, floorNumber: number, lab
       // Door at last row, col 0
       if (r === rows - 1 && c === 0) {
         cells.push({ row: r, col: c, type: 'DOOR' });
-        continue;
-      }
-      // Window wall at first row, last col
-      if (r === 0 && c === cols - 1) {
-        cells.push({ row: r, col: c, type: 'WINDOW_WALL' });
         continue;
       }
 

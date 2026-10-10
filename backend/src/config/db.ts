@@ -14,6 +14,14 @@ export const pool = mysql.createPool({
   timezone: '+00:00',
 });
 
+// Align MySQL session timezone with the driver's timezone: '+00:00' setting.
+// Without this, NOW() returns IST while the driver sends UTC — causing a 5.5 hr
+// offset on TIMESTAMP columns like grace_until, which makes the no-show cron
+// immediately expire every new booking.
+pool.on('connection', (connection) => {
+  connection.query("SET time_zone = '+00:00'");
+});
+
 export async function query<T = any>(sql: string, params: any[] = []): Promise<T> {
   const [rows] = await pool.query(sql, params);
   return rows as unknown as T;

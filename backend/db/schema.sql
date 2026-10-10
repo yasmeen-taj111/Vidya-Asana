@@ -144,7 +144,7 @@ CREATE TABLE IF NOT EXISTS `bookings` (
   `qr_secret` VARCHAR(100) NOT NULL,
   `checked_in_at` TIMESTAMP NULL,
   `cancelled_at` TIMESTAMP NULL,
-  `idempotency_key` VARCHAR(64) NULL,
+  `idempotency_key` VARCHAR(255) NULL,
   `active_key` VARCHAR(120) GENERATED ALWAYS AS (
     IF(`status` IN ('CONFIRMED', 'CHECKED_IN'), CONCAT(`seat_id`, '-', `slot_id`, '-', `booking_date`), NULL)
   ) STORED,

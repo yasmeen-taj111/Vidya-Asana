@@ -8,6 +8,7 @@ import { mapLibraryRow } from '../owner/routes';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { verifyQrToken } from '../../utils/qr';
 import { notifyNextInWaitlist } from '../waitlist/service';
+import { emitSeatUpdated } from '../../realtime/socket';
 import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
 
@@ -412,33 +413,41 @@ adminRouter.put('/floors/:floorId/layout', async (req, res, next) => {
     // Update dimensions
     await conn.query('UPDATE floors SET `rows` = ?, `cols` = ? WHERE id = ?', [rows, cols, floorId]);
 
-    // Check future bookings on seats before deletion
+    // 1. Identify which seats were removed in the new layout
     const [existingSeats] = (await conn.query('SELECT id, label FROM seats WHERE floor_id = ?', [floorId])) as any[];
     const keptSeatIds = new Set(cells.filter((c: any) => c.type === 'SEAT' && c.seat?.id).map((c: any) => c.seat.id));
+    const seatsToDelete = (existingSeats as any[]).filter((es: any) => !keptSeatIds.has(es.id));
 
-    for (const es of existingSeats) {
-      if (!keptSeatIds.has(es.id)) {
-        const [futureB] = (await conn.query(
-          'SELECT id FROM bookings WHERE seat_id = ? AND status IN ("CONFIRMED", "CHECKED_IN") AND booking_date >= CURDATE()',
-          [es.id]
-        )) as any[];
-        if (futureB.length > 0) {
-          throw new AppError(
-            'BAD_REQUEST',
-            `Cannot delete seat ${es.label}: has active upcoming reservations`,
-            409,
-            { details: { seatId: es.id, label: es.label } }
-          );
-        }
+    // 2. Prevent deleting seats that have active upcoming reservations
+    for (const ds of seatsToDelete) {
+      const [futureB] = (await conn.query(
+        'SELECT id FROM bookings WHERE seat_id = ? AND status IN ("CONFIRMED", "CHECKED_IN") AND booking_date >= CURDATE()',
+        [ds.id]
+      )) as any[];
+      if (futureB.length > 0) {
+        throw new AppError(
+          'BAD_REQUEST',
+          `Cannot delete seat ${ds.label}: has active upcoming reservations. Please reassign or cancel those reservations first.`,
+          409,
+          { details: { seatId: ds.id, label: ds.label } }
+        );
       }
     }
 
-    // Replace floor cells and seats
+    // 3. Clean up deleted seats (safely removing bookings and waitlist references so foreign keys don't fail)
+    if (seatsToDelete.length > 0) {
+      const delIds = seatsToDelete.map((s: any) => s.id);
+      await conn.query('DELETE FROM bookings WHERE seat_id IN (?)', [delIds]);
+      await conn.query('DELETE FROM waitlist_entries WHERE seat_id IN (?)', [delIds]);
+      await conn.query('DELETE FROM seats WHERE id IN (?)', [delIds]);
+    }
+
+    // 4. Replace floor cells
     await conn.query('DELETE FROM floor_cells WHERE floor_id = ?', [floorId]);
-    await conn.query('DELETE FROM seats WHERE floor_id = ?', [floorId]);
 
     const resultCells: any[] = [];
 
+    // 5. Upsert seats and insert floor cells
     for (const c of cells) {
       if (c.type === 'SEAT' && c.seat) {
         const seatId = c.seat.id || generateUUID();
@@ -447,7 +456,19 @@ adminRouter.put('/floors/:floorId/layout', async (req, res, next) => {
             id, floor_id, library_id, label, seat_type, facing,
             attr_window, attr_power_outlet, attr_quiet_zone, attr_near_door,
             group_capacity, is_active, grid_row, grid_col
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            label = VALUES(label),
+            seat_type = VALUES(seat_type),
+            facing = VALUES(facing),
+            attr_window = VALUES(attr_window),
+            attr_power_outlet = VALUES(attr_power_outlet),
+            attr_quiet_zone = VALUES(attr_quiet_zone),
+            attr_near_door = VALUES(attr_near_door),
+            group_capacity = VALUES(group_capacity),
+            is_active = VALUES(is_active),
+            grid_row = VALUES(grid_row),
+            grid_col = VALUES(grid_col)`,
           [
             seatId,
             floorId,
@@ -822,6 +843,8 @@ adminRouter.post('/bookings/walk-in', async (req, res, next) => {
       ]
     );
 
+    emitSeatUpdated(libraryId, seatId, slotId, date, 'BOOKED');
+
     sendSuccess(res, {
       id,
       code,
@@ -861,26 +884,148 @@ adminRouter.post('/bookings/:id/release', async (req, res, next) => {
 adminRouter.get('/analytics/summary', async (req, res, next) => {
   try {
     const libraryId = req.user!.libraryId;
-    const [seats] = await query('SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND is_active = 1', [libraryId]);
+    const { from, to, date, slotId, floorId } = req.query as {
+      from?: string;
+      to?: string;
+      date?: string;
+      slotId?: string;
+      floorId?: string;
+    };
+
+    // 1. Fetch exact total active seats for this library (or floor)
+    const seatQuery = floorId
+      ? 'SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND floor_id = ? AND is_active = 1'
+      : 'SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND is_active = 1';
+    const seatQueryParams = floorId ? [libraryId, floorId] : [libraryId];
+    const [seats] = await query(seatQuery, seatQueryParams);
     const totalSeats = parseInt(seats.total || '0', 10);
 
-    const [activeBookings] = await query(
-      'SELECT COUNT(*) as booked FROM bookings WHERE library_id = ? AND status IN ("CONFIRMED", "CHECKED_IN") AND booking_date = CURDATE()',
-      [libraryId]
-    );
+    // 2. Build date condition
+    let dateCondition = 'b.booking_date = CURDATE()';
+    const filterParams: any[] = [];
+
+    if (from && to) {
+      dateCondition = 'b.booking_date >= ? AND b.booking_date <= ?';
+      filterParams.push(from, to);
+    } else if (date) {
+      dateCondition = 'b.booking_date = ?';
+      filterParams.push(date);
+    }
+
+    let slotCondition = '';
+    if (slotId) {
+      slotCondition = ' AND b.slot_id = ?';
+      filterParams.push(slotId);
+    }
+
+    // 3. Count occupied seats (CONFIRMED, CHECKED_IN, or COMPLETED)
+    let activeBookingsQuery: string;
+    let countsQuery: string;
+    let queryParams: any[];
+
+    if (floorId) {
+      activeBookingsQuery = `
+        SELECT COUNT(DISTINCT b.seat_id) as booked
+        FROM bookings b
+        INNER JOIN seats s ON b.seat_id = s.id
+        WHERE b.library_id = ?
+          AND s.floor_id = ?
+          AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+          AND ${dateCondition} ${slotCondition}
+      `;
+      countsQuery = `
+        SELECT
+          SUM(b.status = 'CHECKED_IN') as checkedIn,
+          SUM(b.status = 'NO_SHOW') as noShows,
+          SUM(b.source = 'WALK_IN') as walkIns,
+          SUM(CASE WHEN b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED') THEN b.price_paise ELSE 0 END) as revenuePaise
+        FROM bookings b
+        INNER JOIN seats s ON b.seat_id = s.id
+        WHERE b.library_id = ?
+          AND s.floor_id = ?
+          AND ${dateCondition} ${slotCondition}
+      `;
+      queryParams = [libraryId, floorId, ...filterParams];
+    } else {
+      activeBookingsQuery = `
+        SELECT COUNT(DISTINCT b.seat_id) as booked
+        FROM bookings b
+        WHERE b.library_id = ?
+          AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+          AND ${dateCondition} ${slotCondition}
+      `;
+      countsQuery = `
+        SELECT
+          SUM(b.status = 'CHECKED_IN') as checkedIn,
+          SUM(b.status = 'NO_SHOW') as noShows,
+          SUM(b.source = 'WALK_IN') as walkIns,
+          SUM(CASE WHEN b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED') THEN b.price_paise ELSE 0 END) as revenuePaise
+        FROM bookings b
+        WHERE b.library_id = ?
+          AND ${dateCondition} ${slotCondition}
+      `;
+      queryParams = [libraryId, ...filterParams];
+    }
+
+    const [activeBookings] = await query(activeBookingsQuery, queryParams);
     const bookedSeats = parseInt(activeBookings.booked || '0', 10);
     const availableSeats = Math.max(0, totalSeats - bookedSeats);
     const bookedPercent = totalSeats > 0 ? Math.round((bookedSeats / totalSeats) * 100) : 0;
     const notBookedPercent = 100 - bookedPercent;
 
-    const [counts] = await query(`
-      SELECT
-        SUM(status = 'CHECKED_IN') as checkedIn,
-        SUM(status = 'NO_SHOW') as noShows,
-        SUM(source = 'WALK_IN') as walkIns,
-        SUM(price_paise) as revenuePaise
-      FROM bookings WHERE library_id = ? AND booking_date = CURDATE()
+    const [counts] = await query(countsQuery, queryParams);
+
+    // 4. Floor-by-floor breakdown directly from the Floors & Grid Builder
+    const floorRows = await query(`
+      SELECT f.id, f.floor_number as floorNumber, f.label, f.rows, f.cols,
+             COUNT(s.id) as totalSeats
+      FROM floors f
+      LEFT JOIN seats s ON s.floor_id = f.id AND s.is_active = 1
+      WHERE f.library_id = ?
+      GROUP BY f.id
+      ORDER BY f.floor_number ASC
     `, [libraryId]);
+
+    const floors = await Promise.all((floorRows as any[]).map(async (f) => {
+      const [fBooked] = await query(`
+        SELECT COUNT(DISTINCT b.seat_id) as booked
+        FROM bookings b
+        INNER JOIN seats s ON b.seat_id = s.id
+        WHERE b.library_id = ?
+          AND s.floor_id = ?
+          AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+          AND ${dateCondition} ${slotCondition}
+      `, [libraryId, f.id, ...filterParams]);
+
+      const fTotal = parseInt(f.totalSeats || '0', 10);
+      const fBk = parseInt(fBooked.booked || '0', 10);
+      const fAvail = Math.max(0, fTotal - fBk);
+      const fOcc = fTotal > 0 ? Math.round((fBk / fTotal) * 100) : 0;
+
+      const typeRows = await query(`
+        SELECT seat_type, COUNT(*) as count
+        FROM seats
+        WHERE floor_id = ? AND is_active = 1
+        GROUP BY seat_type
+      `, [f.id]);
+      const seatTypes: Record<string, number> = {};
+      (typeRows as any[]).forEach((tr) => {
+        seatTypes[tr.seat_type] = parseInt(tr.count || '0', 10);
+      });
+
+      return {
+        id: f.id,
+        floorNumber: f.floorNumber,
+        label: f.label,
+        rows: f.rows,
+        cols: f.cols,
+        totalSeats: fTotal,
+        bookedSeats: fBk,
+        availableSeats: fAvail,
+        occupancyPercent: fOcc,
+        seatTypes,
+      };
+    }));
 
     sendSuccess(res, {
       totalSeats,
@@ -892,6 +1037,7 @@ adminRouter.get('/analytics/summary', async (req, res, next) => {
       noShows: parseInt(counts.noShows || '0', 10),
       walkIns: parseInt(counts.walkIns || '0', 10),
       revenuePaise: parseInt(counts.revenuePaise || '0', 10),
+      floors,
     });
   } catch (err) {
     next(err);
@@ -902,22 +1048,171 @@ adminRouter.get('/analytics/summary', async (req, res, next) => {
 adminRouter.get('/analytics/timeseries', async (req, res, next) => {
   try {
     const libraryId = req.user!.libraryId;
-    const slots = await query('SELECT * FROM time_slots WHERE library_id = ?', [libraryId]);
-    const [seats] = await query('SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND is_active = 1', [libraryId]);
-    const capacity = parseInt(seats.total || '0', 10);
+    const { from, to, date, groupBy = 'slot', floorId } = req.query as {
+      from?: string;
+      to?: string;
+      date?: string;
+      groupBy?: 'slot' | 'day' | 'seatType';
+      floorId?: string;
+    };
 
+    // Total active seats for this library (or floor)
+    const seatQuery = floorId
+      ? 'SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND floor_id = ? AND is_active = 1'
+      : 'SELECT COUNT(*) as total FROM seats WHERE library_id = ? AND is_active = 1';
+    const seatParams = floorId ? [libraryId, floorId] : [libraryId];
+    const [seats] = await query(seatQuery, seatParams);
+    const totalSeats = parseInt(seats.total || '0', 10);
+
+    let dateSql = 'b.booking_date = CURDATE()';
+    const dateParams: any[] = [];
+    if (from && to) {
+      dateSql = 'b.booking_date >= ? AND b.booking_date <= ?';
+      dateParams.push(from, to);
+    } else if (date) {
+      dateSql = 'b.booking_date = ?';
+      dateParams.push(date);
+    }
+
+    if (groupBy === 'day') {
+      let dayQuery: string;
+      let dayParams: any[];
+
+      if (floorId) {
+        dayQuery = `
+          SELECT b.booking_date, COUNT(*) as booked
+          FROM bookings b
+          INNER JOIN seats s ON b.seat_id = s.id
+          WHERE b.library_id = ?
+            AND s.floor_id = ?
+            AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+            AND ${dateSql}
+          GROUP BY b.booking_date
+          ORDER BY b.booking_date ASC
+        `;
+        dayParams = [libraryId, floorId, ...dateParams];
+      } else {
+        dayQuery = `
+          SELECT b.booking_date, COUNT(*) as booked
+          FROM bookings b
+          WHERE b.library_id = ?
+            AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+            AND ${dateSql}
+          GROUP BY b.booking_date
+          ORDER BY b.booking_date ASC
+        `;
+        dayParams = [libraryId, ...dateParams];
+      }
+
+      const rows = await query(dayQuery, dayParams);
+
+      const points = (rows as any[]).map((r) => {
+        const booked = parseInt(r.booked || '0', 10);
+        let label = '';
+        if (r.booking_date instanceof Date) {
+          label = r.booking_date.toISOString().split('T')[0];
+        } else {
+          label = String(r.booking_date).split('T')[0];
+        }
+        return {
+          label,
+          booked,
+          capacity: totalSeats,
+          percent: totalSeats > 0 ? Math.round((booked / totalSeats) * 100) : 0,
+        };
+      });
+
+      return sendSuccess(res, { points });
+    }
+
+    if (groupBy === 'seatType') {
+      const typeQuery = floorId
+        ? 'SELECT seat_type, COUNT(*) as total FROM seats WHERE library_id = ? AND floor_id = ? AND is_active = 1 GROUP BY seat_type'
+        : 'SELECT seat_type, COUNT(*) as total FROM seats WHERE library_id = ? AND is_active = 1 GROUP BY seat_type';
+      const seatTypeCounts = await query(typeQuery, seatParams);
+
+      const points = await Promise.all(
+        (seatTypeCounts as any[]).map(async (st) => {
+          let bQuery: string;
+          let bParams: any[];
+          if (floorId) {
+            bQuery = `
+              SELECT COUNT(*) as booked
+              FROM bookings b
+              INNER JOIN seats s ON b.seat_id = s.id
+              WHERE b.library_id = ?
+                AND s.floor_id = ?
+                AND s.seat_type = ?
+                AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+                AND ${dateSql}
+            `;
+            bParams = [libraryId, floorId, st.seat_type, ...dateParams];
+          } else {
+            bQuery = `
+              SELECT COUNT(*) as booked
+              FROM bookings b
+              INNER JOIN seats s ON b.seat_id = s.id
+              WHERE b.library_id = ?
+                AND s.seat_type = ?
+                AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+                AND ${dateSql}
+            `;
+            bParams = [libraryId, st.seat_type, ...dateParams];
+          }
+
+          const [b] = await query(bQuery, bParams);
+          const booked = parseInt(b.booked || '0', 10);
+          const capacity = parseInt(st.total || '0', 10);
+          return {
+            label: st.seat_type,
+            booked,
+            capacity,
+            percent: capacity > 0 ? Math.round((booked / capacity) * 100) : 0,
+          };
+        })
+      );
+
+      return sendSuccess(res, { points });
+    }
+
+    // Default: Group by slot
+    const slots = await query('SELECT * FROM time_slots WHERE library_id = ? ORDER BY start_time ASC', [libraryId]);
     const points = await Promise.all(
-      slots.map(async (s) => {
-        const [b] = await query(
-          'SELECT COUNT(*) as booked FROM bookings WHERE library_id = ? AND slot_id = ? AND booking_date = CURDATE()',
-          [libraryId, s.id]
-        );
+      (slots as any[]).map(async (s) => {
+        let bQuery: string;
+        let bParams: any[];
+
+        if (floorId) {
+          bQuery = `
+            SELECT COUNT(*) as booked
+            FROM bookings b
+            INNER JOIN seats s ON b.seat_id = s.id
+            WHERE b.library_id = ?
+              AND s.floor_id = ?
+              AND b.slot_id = ?
+              AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+              AND ${dateSql}
+          `;
+          bParams = [libraryId, floorId, s.id, ...dateParams];
+        } else {
+          bQuery = `
+            SELECT COUNT(*) as booked
+            FROM bookings b
+            WHERE b.library_id = ?
+              AND b.slot_id = ?
+              AND b.status IN ('CONFIRMED', 'CHECKED_IN', 'COMPLETED')
+              AND ${dateSql}
+          `;
+          bParams = [libraryId, s.id, ...dateParams];
+        }
+
+        const [b] = await query(bQuery, bParams);
         const booked = parseInt(b.booked || '0', 10);
         return {
           label: `${s.name} (${s.start_time} - ${s.end_time})`,
           booked,
-          capacity,
-          percent: capacity > 0 ? Math.round((booked / capacity) * 100) : 0,
+          capacity: totalSeats,
+          percent: totalSeats > 0 ? Math.round((booked / totalSeats) * 100) : 0,
         };
       })
     );

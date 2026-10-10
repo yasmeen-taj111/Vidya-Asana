@@ -159,7 +159,7 @@ discoveryRouter.get('/libraries/:id/floors/:floorId/grid', optionalAuth, async (
         [req.params.id, slotId, date]
       );
       heldWaitlist = await query(
-        'SELECT seat_id FROM waitlist_entries WHERE slot_id = ? AND booking_date = ? AND status = "NOTIFIED" AND claim_expires_at > NOW()',
+        'SELECT seat_id FROM waitlist_entries WHERE slot_id = ? AND booking_date = ? AND status = "NOTIFIED" AND claim_expires_at > UTC_TIMESTAMP()',
         [slotId, date]
       );
     }

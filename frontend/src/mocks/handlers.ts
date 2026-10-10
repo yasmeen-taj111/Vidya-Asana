@@ -45,8 +45,12 @@ import {
   getStoredAnalyticsForLibrary,
 } from './storage';
 import { useUiStore } from '../store/uiStore';
+<<<<<<< Updated upstream
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library } from '../api/types';
 import { generateChatResponse } from '../chat/chatEngine';
+=======
+import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, GridCell } from '../api/types';
+>>>>>>> Stashed changes
 
 const BASE = '*/api/v1';
 
@@ -591,16 +595,58 @@ export const handlers = [
   }),
 
   http.get(`${BASE}/admin/analytics/summary`, ({ request }) => {
+<<<<<<< Updated upstream
     const user = resolveCurrentUser(request);
     const lib = getLibraryForAdmin(user);
     const summary = getStoredAnalyticsForLibrary(lib.id);
     return HttpResponse.json({
       success: true,
       data: summary,
+=======
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const date = url.searchParams.get('date');
+
+    const totalSeats = Object.values(mockFloorGrids).reduce(
+      (acc: number, g: FloorGrid) => acc + g.cells.filter((c: GridCell) => c.type === 'SEAT' && c.seat?.isActive).length,
+      0
+    ) || 10;
+
+    let allBookings = getStoredBookings();
+    if (from && to) {
+      allBookings = allBookings.filter((b: Booking) => b.date >= from && b.date <= to);
+    } else if (date) {
+      allBookings = allBookings.filter((b: Booking) => b.date === date);
+    }
+
+    const occupiedBookings = allBookings.filter(
+      (b: Booking) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN' || b.status === 'COMPLETED'
+    );
+    const bookedSeats = Math.min(totalSeats, occupiedBookings.length);
+    const availableSeats = Math.max(0, totalSeats - bookedSeats);
+    const bookedPercent = totalSeats > 0 ? Math.min(100, Math.round((bookedSeats / totalSeats) * 100)) : 0;
+    const notBookedPercent = 100 - bookedPercent;
+
+    return HttpResponse.json({
+      success: true,
+      data: {
+        totalSeats,
+        bookedSeats,
+        availableSeats,
+        bookedPercent,
+        notBookedPercent,
+        checkedIn: allBookings.filter((b: Booking) => b.status === 'CHECKED_IN').length,
+        noShows: allBookings.filter((b: Booking) => b.status === 'NO_SHOW').length,
+        walkIns: allBookings.filter((b: Booking) => b.source === 'WALK_IN').length,
+        revenuePaise: occupiedBookings.reduce((sum: number, b: Booking) => sum + (b.pricePaise || 0), 0) || 45000,
+      },
+>>>>>>> Stashed changes
     });
   }),
 
   http.get(`${BASE}/admin/analytics/timeseries`, ({ request }) => {
+<<<<<<< Updated upstream
     const user = resolveCurrentUser(request);
     const lib = getLibraryForAdmin(user);
     const summary = getStoredAnalyticsForLibrary(lib.id);
@@ -619,6 +665,45 @@ export const handlers = [
           { label: '17:00 - 21:00 (Evening)', booked: 0, capacity: 0, percent: 0 },
           { label: '21:00 - 23:59 (Night)', booked: 0, capacity: 0, percent: 0 },
         ],
+=======
+    const url = new URL(request.url);
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    const date = url.searchParams.get('date');
+
+    const totalSeats = Object.values(mockFloorGrids).reduce(
+      (acc: number, g: FloorGrid) => acc + g.cells.filter((c: GridCell) => c.type === 'SEAT' && c.seat?.isActive).length,
+      0
+    ) || 10;
+
+    let allBookings = getStoredBookings();
+    if (from && to) {
+      allBookings = allBookings.filter((b: Booking) => b.date >= from && b.date <= to);
+    } else if (date) {
+      allBookings = allBookings.filter((b: Booking) => b.date === date);
+    }
+
+    const occupiedBookings = allBookings.filter(
+      (b: Booking) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN' || b.status === 'COMPLETED'
+    );
+
+    const slots = mockSlots;
+    const points = slots.map((s: TimeSlot) => {
+      const slotBookings = occupiedBookings.filter((b: Booking) => b.slot.id === s.id);
+      const booked = slotBookings.length;
+      return {
+        label: `${s.name} (${s.startTime} - ${s.endTime})`,
+        booked,
+        capacity: totalSeats,
+        percent: totalSeats > 0 ? Math.round((booked / totalSeats) * 100) : 0,
+      };
+    });
+
+    return HttpResponse.json({
+      success: true,
+      data: {
+        points,
+>>>>>>> Stashed changes
       },
     });
   }),

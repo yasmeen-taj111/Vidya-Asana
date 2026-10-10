@@ -1,15 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import { Booking, TimeSlot } from '../../api/types';
-import { BookOpen, Calendar, Filter, QrCode } from 'lucide-react';
+import { BookOpen, Calendar, Filter, QrCode, RefreshCw } from 'lucide-react';
+import { useAuthStore } from '../../store/authStore';
+import { useSeatUpdates } from '../../realtime/useSeatUpdates';
 
 export const Bookings: React.FC = () => {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSlotId, setSelectedSlotId] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('');
   const [loading, setLoading] = useState(true);
+  const { user } = useAuthStore();
+
+  const todayStr = new Date().toISOString().split('T')[0];
 
   const loadData = async () => {
     try {
@@ -35,6 +40,11 @@ export const Bookings: React.FC = () => {
     loadData();
   }, [selectedDate, selectedSlotId, selectedStatus]);
 
+  // Real-time updates: refresh table when new reservations occur
+  useSeatUpdates(user?.libraryId, () => {
+    loadData();
+  });
+
   return (
     <div className="space-y-6">
       <div>
@@ -47,16 +57,41 @@ export const Bookings: React.FC = () => {
       </div>
 
       {/* Filter Ribbon */}
-      <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center gap-4 text-xs">
-        <div>
-          <span className="text-slate-400 block font-medium mb-1">Date:</span>
-          <input
-            type="date"
-            value={selectedDate}
-            onChange={(e) => setSelectedDate(e.target.value)}
-            className="p-2 rounded-xl border border-slate-200 outline-none"
-          />
-        </div>
+      <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center justify-between gap-4 text-xs">
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <span className="text-slate-400 block font-medium mb-1">Date:</span>
+            <div className="flex items-center gap-2">
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(e) => setSelectedDate(e.target.value)}
+                className="p-2 rounded-xl border border-slate-200 outline-none text-slate-800 font-semibold"
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedDate('')}
+                className={`px-3 py-2 rounded-xl font-bold transition-all ${
+                  !selectedDate
+                    ? 'bg-navy text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                All Dates
+              </button>
+              <button
+                type="button"
+                onClick={() => setSelectedDate(todayStr)}
+                className={`px-3 py-2 rounded-xl font-bold transition-all ${
+                  selectedDate === todayStr
+                    ? 'bg-navy text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                Today
+              </button>
+            </div>
+          </div>
 
         <div>
           <span className="text-slate-400 block font-medium mb-1">Time Slot:</span>
@@ -90,6 +125,7 @@ export const Bookings: React.FC = () => {
           </select>
         </div>
       </div>
+    </div>
 
       {/* Bookings Table */}
       <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">

@@ -216,6 +216,19 @@ export interface DashboardStats {
   };
 }
 
+export interface FloorAnalytics {
+  id: string;
+  floorNumber: number;
+  label: string;
+  rows: number;
+  cols: number;
+  totalSeats: number;
+  bookedSeats: number;
+  availableSeats: number;
+  occupancyPercent: number;
+  seatTypes: Record<string, number>;
+}
+
 export interface AnalyticsSummary {
   totalSeats: number;
   bookedSeats: number;
@@ -226,6 +239,7 @@ export interface AnalyticsSummary {
   noShows: number;
   walkIns: number;
   revenuePaise: number;
+  floors?: FloorAnalytics[];
 }
 
 export interface AnalyticsTimeseriesPoint {

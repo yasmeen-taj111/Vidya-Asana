@@ -510,18 +510,18 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
                   <div
                     key={`${cell.row}-${cell.col}`}
                     onClick={() => handleCellClick(cell.row, cell.col)}
-                    className={`relative p-2 rounded-2xl border-2 cursor-pointer transition-all flex flex-col items-center justify-between select-none ${
+                    className={`relative p-2 rounded-2xl border-2 cursor-pointer transition-all duration-200 ease-out select-none active:scale-95 flex flex-col items-center justify-between ${
                       isSelected
-                        ? 'ring-4 ring-primary/20 border-primary bg-primary/10 shadow-md scale-105 z-10'
+                        ? 'ring-4 ring-primary/20 border-primary bg-primary/10 shadow-lg scale-105 z-10'
                         : cell.type === 'SEAT'
-                        ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-900'
+                        ? 'border-emerald-300 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-500 hover:shadow-md hover:shadow-emerald-500/10 hover:-translate-y-0.5 hover:scale-[1.03] text-emerald-900'
                         : cell.type === 'AISLE'
-                        ? 'border-dashed border-slate-300 bg-slate-200/50 text-slate-400'
+                        ? 'border-dashed border-slate-300 bg-slate-100/70 text-slate-400 hover:bg-slate-200/90 hover:border-slate-400 hover:text-slate-600 hover:shadow-sm hover:-translate-y-0.5 hover:scale-[1.03]'
                         : cell.type === 'DOOR'
-                        ? 'border-teal/40 bg-teal-light text-teal-dark font-bold'
+                        ? 'border-teal/40 bg-teal-light text-teal-dark font-bold hover:bg-teal-light/90 hover:border-teal/60 hover:shadow-sm hover:-translate-y-0.5 hover:scale-[1.03]'
                         : cell.type === 'WINDOW_WALL'
-                        ? 'border-sky-300 bg-sky-50 text-sky-700 font-bold'
-                        : 'border-slate-200 bg-white hover:bg-slate-100 text-slate-300'
+                        ? 'border-sky-300 bg-sky-50 text-sky-700 font-bold hover:bg-sky-100 hover:border-sky-400 hover:shadow-sm hover:-translate-y-0.5 hover:scale-[1.03]'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 hover:border-slate-300 hover:shadow-xs hover:scale-[1.02] text-slate-300'
                     }`}
                   >
                     {cell.type === 'SEAT' && cell.seat ? (

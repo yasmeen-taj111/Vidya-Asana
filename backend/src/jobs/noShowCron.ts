@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { query } from '../config/db';
-import { emitBookingReminder, emitBookingReleased } from '../realtime/socket';
+import { emitBookingReminder, emitBookingReleased, emitSeatUpdated } from '../realtime/socket';
 import { createNotification } from '../modules/notifications/service';
 import { notifyNextInWaitlist } from '../modules/waitlist/service';
 import { sendMail } from '../config/mailer';
@@ -12,6 +12,7 @@ export function startNoShowCron() {
       await processSlotStartReminders();
       await processNoShows();
       await processExpiredWaitlists();
+      await processSlotCompletions();
     } catch (err) {
       console.error('[Cron] Error in no-show scheduler:', err);
     }
@@ -81,7 +82,7 @@ async function processNoShows() {
      JOIN libraries l ON l.id = b.library_id
      JOIN seats s ON s.id = b.seat_id
      WHERE b.status = 'CONFIRMED'
-       AND b.grace_until <= NOW()`
+       AND b.grace_until <= UTC_TIMESTAMP()`
   );
 
   for (const b of expiredBookings) {
@@ -121,7 +122,7 @@ async function processNoShows() {
 async function processExpiredWaitlists() {
   const expiredWaitlists = await query<any[]>(
     `SELECT * FROM waitlist_entries
-     WHERE status = 'NOTIFIED' AND claim_expires_at <= NOW()`
+     WHERE status = 'NOTIFIED' AND claim_expires_at <= UTC_TIMESTAMP()`
   );
 
   for (const w of expiredWaitlists) {
@@ -134,5 +135,36 @@ async function processExpiredWaitlists() {
 
     // Notify next in line
     await notifyNextInWaitlist(w.seat_id, w.slot_id, dateStr);
+  }
+}
+
+async function processSlotCompletions() {
+  const now = new Date();
+  const todayStr = now.toISOString().substring(0, 10);
+  const currentH = String(now.getHours()).padStart(2, '0');
+  const currentM = String(now.getMinutes()).padStart(2, '0');
+  const currentTime = `${currentH}:${currentM}`;
+
+  // Find active bookings that have passed their slot end time
+  const completedBookings = await query<any[]>(
+    `SELECT b.id, b.seat_id, b.slot_id, b.library_id, b.booking_date
+     FROM bookings b
+     JOIN time_slots sl ON sl.id = b.slot_id
+     WHERE b.status IN ('CHECKED_IN', 'CONFIRMED')
+       AND (
+         b.booking_date < ?
+         OR (b.booking_date = ? AND sl.end_time <= ?)
+       )`,
+    [todayStr, todayStr, currentTime]
+  );
+
+  for (const b of completedBookings) {
+    await query(`UPDATE bookings SET status = 'COMPLETED' WHERE id = ?`, [b.id]);
+    const dateStr =
+      typeof b.booking_date === 'string'
+        ? b.booking_date.substring(0, 10)
+        : new Date(b.booking_date).toISOString().substring(0, 10);
+    // Release the seat in real-time
+    emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
   }
 }

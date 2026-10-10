@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
 import { Library } from '../../api/types';
 import { useUiStore } from '../../store/uiStore';
-import { Building, Save, MapPin, Wifi, Wind, Shield, Zap, Lock } from 'lucide-react';
 
 export const Profile: React.FC = () => {
   const [library, setLibrary] = useState<Library | null>(null);
@@ -126,7 +125,6 @@ export const Profile: React.FC = () => {
                 }
                 className="rounded text-primary"
               />
-              <Wind className="w-4 h-4 text-primary" />
               <span>Air Conditioning</span>
             </label>
 
@@ -142,7 +140,6 @@ export const Profile: React.FC = () => {
                 }
                 className="rounded text-primary"
               />
-              <Wifi className="w-4 h-4 text-teal" />
               <span>Fast WiFi</span>
             </label>
 
@@ -158,7 +155,6 @@ export const Profile: React.FC = () => {
                 }
                 className="rounded text-primary"
               />
-              <Zap className="w-4 h-4 text-amber-500" />
               <span>Power Sockets</span>
             </label>
 
@@ -174,7 +170,6 @@ export const Profile: React.FC = () => {
                 }
                 className="rounded text-primary"
               />
-              <Shield className="w-4 h-4 text-slate-600" />
               <span>CCTV Monitoring</span>
             </label>
 
@@ -190,7 +185,6 @@ export const Profile: React.FC = () => {
                 }
                 className="rounded text-primary"
               />
-              <Lock className="w-4 h-4 text-slate-600" />
               <span>Storage Lockers</span>
             </label>
           </div>
@@ -201,7 +195,6 @@ export const Profile: React.FC = () => {
           disabled={saving}
           className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
         >
-          <Save className="w-4 h-4" />
           {saving ? 'Saving Profile...' : 'Save Profile Changes'}
         </button>
       </form>
