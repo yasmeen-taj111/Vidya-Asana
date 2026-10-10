@@ -212,6 +212,7 @@ export const WalkIn: React.FC = () => {
           grid={currentGrid}
           onSelectSeat={handleSeatClick}
           interactive={true}
+          allowOccupiedClick={true}
         />
       )}
 

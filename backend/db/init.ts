@@ -72,6 +72,6 @@ async function init() {
 }
 
 init().catch((err) => {
-  console.error('[DB Init] Process aborted due to error.');
+  console.error('[DB Init] Process aborted due to error:', err);
   process.exit(1);
 });
