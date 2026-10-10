@@ -25,16 +25,24 @@ export interface MailOptions {
 }
 
 export async function sendMail(options: MailOptions) {
+  // Always ensure a clean plain-text fallback for anti-spam filtering
+  const plainText = options.text || (options.html ? options.html.replace(/<[^>]*>?/gm, ' ').replace(/\s+/g, ' ').trim() : '');
+
   if (transporter) {
     try {
-      await transporter.sendMail({
+      const info = await transporter.sendMail({
         from: env.MAIL_FROM,
+        replyTo: env.SMTP_USER,
         to: options.to,
         subject: options.subject,
         html: options.html,
-        text: options.text,
+        text: plainText,
+        headers: {
+          'X-Mailer': 'Vidya Asana Platform',
+        },
       });
-      return;
+      console.log(`[Mailer] ✅ Email successfully dispatched via SMTP to: ${options.to} (Message ID: ${info.messageId})`);
+      return info;
     } catch (err) {
       console.error('[SMTP Error] Failed to send email via SMTP, falling back to console:', err);
     }

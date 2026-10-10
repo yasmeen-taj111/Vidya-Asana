@@ -137,10 +137,46 @@ ownerRouter.post('/libraries/:id/approve', async (req, res, next) => {
     const library = mapLibraryRow(updated[0]);
 
     // Send SMTP email
-    sendMail({
+    await sendMail({
       to: library.contactEmail,
-      subject: `Vidya Asana: Your library listing for "${library.name}" is Approved!`,
-      html: `<h2>Congratulations!</h2><p>Your library <strong>${library.name}</strong> has been approved by the platform administrator. You can now configure study floors, seat grids, and reservation slots.</p>`,
+      subject: `[Vidya Asana] Library Listing Approved: ${library.name}`,
+      text: `Hello,\n\nYour library "${library.name}" has been approved by the platform administrator.\n\nYou can now log in to your Library Admin Dashboard to configure study floors, seat grids, and reservation slots.\n\nBest regards,\nThe Vidya Asana Team`,
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Library Approved</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b;">
+  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden;">
+    <div style="background-color: #0f172a; padding: 24px; text-align: center;">
+      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700;">Vidya<span style="color: #f59e0b;">Asana</span></h1>
+      <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">Intelligent Library & Study Workspace Management</p>
+    </div>
+    <div style="padding: 28px 24px;">
+      <span style="background-color: #ecfdf5; color: #059669; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">Listing Approved</span>
+      <h2 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 12px 0 8px 0;">Welcome, ${library.name}!</h2>
+      <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 16px 0;">
+        Your library registration has been verified and approved by the platform administration. Your listing is now active on the Vidya Asana network.
+      </p>
+      <div style="background-color: #f8fafc; border-radius: 8px; padding: 14px; border: 1px solid #e2e8f0; margin-bottom: 20px;">
+        <p style="margin: 0 0 6px 0; font-size: 13px; font-weight: 600; color: #334155;">Next steps for your administrator account:</p>
+        <ul style="margin: 0; padding-left: 18px; font-size: 13px; color: #64748b; line-height: 1.6;">
+          <li>Configure your floor layouts and seating grid</li>
+          <li>Set up operating hours and reservation time slots</li>
+          <li>Monitor student reservations and QR check-ins</li>
+        </ul>
+      </div>
+    </div>
+    <div style="background-color: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; text-align: center;">
+      <p style="margin: 0; font-size: 11px; color: #94a3b8;">
+        Vidya Asana automated platform notification.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`,
     });
 
     sendSuccess(res, library);
@@ -168,10 +204,41 @@ ownerRouter.post('/libraries/:id/reject', async (req, res, next) => {
     const library = mapLibraryRow(updated[0]);
 
     // Send SMTP email with rejection reason
-    sendMail({
+    await sendMail({
       to: library.contactEmail,
-      subject: `Vidya Asana: Update on your library listing for "${library.name}"`,
-      html: `<h2>Listing Update</h2><p>Your listing for <strong>${library.name}</strong> was not approved at this time.</p><p><strong>Reason:</strong> ${reason}</p>`,
+      subject: `[Vidya Asana] Update on your library listing: ${library.name}`,
+      text: `Hello,\n\nYour library listing for "${library.name}" was not approved at this time.\n\nReason:\n${reason}\n\nBest regards,\nThe Vidya Asana Team`,
+      html: `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Library Listing Update</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b;">
+  <div style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; overflow: hidden;">
+    <div style="background-color: #0f172a; padding: 24px; text-align: center;">
+      <h1 style="color: #ffffff; margin: 0; font-size: 20px; font-weight: 700;">Vidya<span style="color: #f59e0b;">Asana</span></h1>
+      <p style="color: #94a3b8; font-size: 12px; margin: 4px 0 0 0;">Intelligent Library & Study Workspace Management</p>
+    </div>
+    <div style="padding: 28px 24px;">
+      <span style="background-color: #fff1f2; color: #e11d48; padding: 4px 10px; border-radius: 6px; font-size: 12px; font-weight: 600;">Listing Review</span>
+      <h2 style="font-size: 18px; font-weight: 700; color: #0f172a; margin: 12px 0 8px 0;">Update for ${library.name}</h2>
+      <p style="font-size: 14px; line-height: 1.6; color: #475569; margin: 0 0 16px 0;">
+        Thank you for submitting your library listing. At this time, your application could not be approved due to the following reason:
+      </p>
+      <div style="background-color: #fef2f2; border-radius: 8px; padding: 14px; border: 1px solid #fecaca; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 13px; color: #991b1b; line-height: 1.6;">${reason}</p>
+      </div>
+    </div>
+    <div style="background-color: #f8fafc; padding: 14px 24px; border-top: 1px solid #e2e8f0; text-align: center;">
+      <p style="margin: 0; font-size: 11px; color: #94a3b8;">
+        Vidya Asana automated platform notification.
+      </p>
+    </div>
+  </div>
+</body>
+</html>`,
     });
 
     sendSuccess(res, library);
