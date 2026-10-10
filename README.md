@@ -1,4 +1,4 @@
-# Vidya Asana (विद्या आसन) 📚🪑
+# Vidya Asana (विद्या आसन)
 
 > **Smart Library Seat Allocation & Focus Platform**  
 > *Built for CBC 2.0 Hackathon (Team CB049)*
