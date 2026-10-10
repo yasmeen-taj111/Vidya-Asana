@@ -586,6 +586,22 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: newBooking });
   }),
 
+  http.patch(`${BASE}/admin/bookings/:id/status`, async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as { status?: any };
+    const status = body.status || 'COMPLETED';
+    const updated = updateStoredBooking(params.id as string, { status });
+    if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
+    return HttpResponse.json({ success: true, data: updated });
+  }),
+
+  http.post(`${BASE}/admin/bookings/:id/status`, async ({ params, request }) => {
+    const body = (await request.json().catch(() => ({}))) as { status?: any };
+    const status = body.status || 'COMPLETED';
+    const updated = updateStoredBooking(params.id as string, { status });
+    if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
+    return HttpResponse.json({ success: true, data: updated });
+  }),
+
   http.post(`${BASE}/admin/bookings/:id/release`, ({ params }) => {
     const updated = updateStoredBooking(params.id as string, { status: 'COMPLETED' });
     if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });

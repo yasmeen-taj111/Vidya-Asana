@@ -896,8 +896,8 @@ adminRouter.post('/bookings/walk-in', async (req, res, next) => {
   }
 });
 
-// PATCH /admin/bookings/:id/status
-adminRouter.patch('/bookings/:id/status', async (req, res, next) => {
+// PATCH & POST /admin/bookings/:id/status
+const handleBookingStatusUpdate = async (req: any, res: any, next: any) => {
   try {
     const { status, reason } = req.body;
     const libraryId = req.user!.libraryId!;
@@ -989,7 +989,10 @@ adminRouter.patch('/bookings/:id/status', async (req, res, next) => {
   } catch (err) {
     next(err);
   }
-});
+};
+
+adminRouter.patch('/bookings/:id/status', handleBookingStatusUpdate);
+adminRouter.post('/bookings/:id/status', handleBookingStatusUpdate);
 
 // POST /admin/bookings/:id/release (alias for COMPLETED status)
 adminRouter.post('/bookings/:id/release', async (req, res, next) => {

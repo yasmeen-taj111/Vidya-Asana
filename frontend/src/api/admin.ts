@@ -134,8 +134,16 @@ export const adminApi = {
     status: 'CHECKED_IN' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW',
     reason?: string
   ): Promise<Booking> {
-    const res = await apiClient.patch<ApiResponse<Booking>>(`/admin/bookings/${bookingId}/status`, { status, reason });
-    return (res as unknown as ApiResponse<Booking>).data;
+    try {
+      const res = await apiClient.patch<ApiResponse<Booking>>(`/admin/bookings/${bookingId}/status`, { status, reason });
+      return (res as unknown as ApiResponse<Booking>).data;
+    } catch (err: any) {
+      if (err.status === 404 || err.status === 405) {
+        const res = await apiClient.post<ApiResponse<Booking>>(`/admin/bookings/${bookingId}/status`, { status, reason });
+        return (res as unknown as ApiResponse<Booking>).data;
+      }
+      throw err;
+    }
   },
 
   async getAnalyticsSummary(params?: { from?: string; to?: string; date?: string; slotId?: string; floorId?: string }): Promise<AnalyticsSummary> {
