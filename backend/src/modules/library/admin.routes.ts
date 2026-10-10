@@ -569,6 +569,82 @@ adminRouter.patch('/seats/:seatId', async (req, res, next) => {
   }
 });
 
+// Unbookable Intervals CRUD
+adminRouter.get('/intervals', async (req, res, next) => {
+  try {
+    const libraryId = req.user!.libraryId;
+    const intervals = await query<any[]>(
+      'SELECT * FROM library_unbookable_intervals WHERE library_id = ? ORDER BY date ASC, start_time ASC',
+      [libraryId]
+    );
+    sendSuccess(
+      res,
+      intervals.map((i) => ({
+        id: i.id,
+        libraryId: i.library_id,
+        date: i.date ? (typeof i.date === 'string' ? i.date.slice(0, 10) : new Date(i.date).toISOString().slice(0, 10)) : null,
+        startTime: i.start_time,
+        endTime: i.end_time,
+        reason: i.reason,
+        createdAt: i.created_at,
+        updatedAt: i.updated_at,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.post('/intervals', async (req, res, next) => {
+  try {
+    const libraryId = req.user!.libraryId;
+    const { date, startTime, endTime, reason } = req.body;
+
+    if (!startTime || !endTime || !reason) {
+      throw new AppError('BAD_REQUEST', 'Start time, end time and reason are required', 400);
+    }
+    if (startTime >= endTime) {
+      throw new AppError('BAD_REQUEST', 'Start time must precede end time', 400);
+    }
+
+    const id = generateUUID();
+    const formattedDate = date ? String(date).slice(0, 10) : null;
+    await execute(
+      'INSERT INTO library_unbookable_intervals (id, library_id, date, start_time, end_time, reason) VALUES (?, ?, ?, ?, ?, ?)',
+      [id, libraryId, formattedDate, startTime, endTime, String(reason).trim()]
+    );
+
+    sendSuccess(
+      res,
+      {
+        id,
+        libraryId,
+        date: formattedDate,
+        startTime,
+        endTime,
+        reason: String(reason).trim(),
+      },
+      undefined,
+      201
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+adminRouter.delete('/intervals/:id', async (req, res, next) => {
+  try {
+    const libraryId = req.user!.libraryId;
+    await execute(
+      'DELETE FROM library_unbookable_intervals WHERE id = ? AND library_id = ?',
+      [req.params.id, libraryId]
+    );
+    sendSuccess(res, { ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // Slots CRUD
 adminRouter.get('/slots', async (req, res, next) => {
   try {

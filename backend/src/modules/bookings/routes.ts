@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth';
-import { query } from '../../config/db';
+import { query, execute } from '../../config/db';
 import { sendSuccess, sendError } from '../../utils/response';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { generateQrToken, generateQrDataUrl } from '../../utils/qr';
@@ -81,10 +81,10 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
     const idempotencyKey = (req.headers['idempotency-key'] as string) || null;
-    const { libraryId, seatId, slotId, date } = req.body;
+    let { libraryId, seatId, slotId, date, startTime, endTime } = req.body;
 
-    if (!libraryId || !seatId || !slotId || !date) {
-      return sendError(res, 'VALIDATION_ERROR', 'Missing required fields: libraryId, seatId, slotId, date', 422);
+    if (!libraryId || !seatId || (!slotId && (!startTime || !endTime)) || !date) {
+      return sendError(res, 'VALIDATION_ERROR', 'Missing required fields: libraryId, seatId, date, and slot selection', 422);
     }
 
     // Validate booking date range: today (with 1-day timezone leeway) <= date <= today + 14 days
@@ -113,17 +113,6 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       }
     }
 
-    // Verify slot
-    const slotRows = await query<any[]>(
-      `SELECT * FROM time_slots WHERE id = ? AND library_id = ? AND is_active = 1`,
-      [slotId, libraryId]
-    );
-    if (slotRows.length === 0) {
-      return sendError(res, 'NOT_FOUND', 'Time slot not found or inactive', 404);
-    }
-    const slot = slotRows[0];
-
-    // Validate slot has not already ended if booking for today
     const now = new Date();
     const curYear = now.getFullYear();
     const curMonth = String(now.getMonth() + 1).padStart(2, '0');
@@ -134,18 +123,114 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       return sendError(res, 'BAD_REQUEST', 'Cannot make a booking for a past date. Please select today or an upcoming date.', 400);
     }
 
-    if (date === localTodayStr) {
-      const curH = String(now.getHours()).padStart(2, '0');
-      const curM = String(now.getMinutes()).padStart(2, '0');
-      const curTime = `${curH}:${curM}`;
+    const formatTime12 = (t: string) => {
+      const [h, m] = t.split(':').map(Number);
+      const ampm = h >= 12 ? 'PM' : 'AM';
+      const h12 = h % 12 || 12;
+      return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+    };
 
-      if (slot.end_time <= curTime) {
+    let slot: any;
+
+    if (startTime && endTime) {
+      const [sh, sm] = startTime.split(':').map(Number);
+      const [eh, em] = endTime.split(':').map(Number);
+      const startMins = sh * 60 + sm;
+      const endMins = eh * 60 + em;
+      const durationMins = endMins - startMins;
+
+      if (durationMins < 60) {
+        return sendError(res, 'BAD_REQUEST', 'Minimum bookable slot duration is 1 hour (60 minutes).', 400);
+      }
+      if (durationMins % 30 !== 0) {
+        return sendError(res, 'BAD_REQUEST', 'Slot duration must be in increments of 30 minutes.', 400);
+      }
+
+      if (date === localTodayStr) {
+        const curH = String(now.getHours()).padStart(2, '0');
+        const curM = String(now.getMinutes()).padStart(2, '0');
+        const curTime = `${curH}:${curM}`;
+
+        if (startTime <= curTime) {
+          return sendError(
+            res,
+            'BAD_REQUEST',
+            `Cannot book a slot on time that has already passed (${startTime}). Current time is ${curTime}. Please select an upcoming slot.`,
+            400
+          );
+        }
+      }
+
+      // Check unbookable intervals
+      const closures = await query<any[]>(
+        `SELECT reason, start_time, end_time FROM library_unbookable_intervals
+         WHERE library_id = ? AND (date IS NULL OR date = ?)
+           AND (start_time < ? AND end_time > ?)`,
+        [libraryId, date, endTime, startTime]
+      );
+      if (closures.length > 0) {
+        const c = closures[0];
         return sendError(
           res,
           'BAD_REQUEST',
-          `The ${slot.name} slot (${slot.start_time} - ${slot.end_time}) has already ended for today. Please select an upcoming slot or a future date.`,
+          `The library is closed during this time: ${c.reason} (${c.start_time} - ${c.end_time})`,
           400
         );
+      }
+
+      const slotName = `${formatTime12(startTime)} - ${formatTime12(endTime)}`;
+      const existingSlots = await query<any[]>(
+        `SELECT * FROM time_slots WHERE library_id = ? AND start_time = ? AND end_time = ? AND is_active = 1`,
+        [libraryId, startTime, endTime]
+      );
+      if (existingSlots.length > 0) {
+        slot = existingSlots[0];
+        slotId = slot.id;
+      } else {
+        const newSlotId = generateUUID();
+        await execute(
+          `INSERT INTO time_slots (id, library_id, name, start_time, end_time, is_free, price_paise, is_active)
+           VALUES (?, ?, ?, ?, ?, 1, 0, 1)`,
+          [newSlotId, libraryId, slotName, startTime, endTime]
+        );
+        slot = {
+          id: newSlotId,
+          library_id: libraryId,
+          name: slotName,
+          start_time: startTime,
+          end_time: endTime,
+          is_free: 1,
+          price_paise: 0,
+          is_active: 1,
+        };
+        slotId = newSlotId;
+      }
+    } else {
+      // Legacy or pre-existing slotId provided
+      const slotRows = await query<any[]>(
+        `SELECT * FROM time_slots WHERE id = ? AND library_id = ? AND is_active = 1`,
+        [slotId, libraryId]
+      );
+      if (slotRows.length === 0) {
+        return sendError(res, 'NOT_FOUND', 'Time slot not found or inactive', 404);
+      }
+      slot = slotRows[0];
+      startTime = slot.start_time;
+      endTime = slot.end_time;
+
+      if (date === localTodayStr) {
+        const curH = String(now.getHours()).padStart(2, '0');
+        const curM = String(now.getMinutes()).padStart(2, '0');
+        const curTime = `${curH}:${curM}`;
+
+        if (slot.end_time <= curTime) {
+          return sendError(
+            res,
+            'BAD_REQUEST',
+            `The ${slot.name} slot (${slot.start_time} - ${slot.end_time}) has already ended for today. Please select an upcoming slot or a future date.`,
+            400
+          );
+        }
       }
     }
 
@@ -159,8 +244,7 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
     );
 
     for (const active of userActiveBookings) {
-      // Overlap: active.start < slot.end && active.end > slot.start
-      if (active.start_time < slot.end_time && active.end_time > slot.start_time) {
+      if (active.start_time < endTime && active.end_time > startTime) {
         return sendError(
           res,
           'OVERLAPPING_BOOKING',
@@ -198,10 +282,12 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
 
     // Check availability
     const conflict = await query<any[]>(
-      `SELECT id FROM bookings
-       WHERE seat_id = ? AND slot_id = ? AND booking_date = ?
-         AND status IN ('CONFIRMED', 'CHECKED_IN')`,
-      [seatId, slotId, date]
+      `SELECT b.id FROM bookings b
+       JOIN time_slots sl ON sl.id = b.slot_id
+       WHERE b.seat_id = ? AND b.booking_date = ?
+         AND b.status IN ('CONFIRMED', 'CHECKED_IN')
+         AND (sl.start_time < ? AND sl.end_time > ?)`,
+      [seatId, date, endTime, startTime]
     );
 
     if (conflict.length > 0) {
@@ -214,16 +300,18 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
          JOIN floors f ON f.id = s.floor_id
          WHERE s.library_id = ? AND s.is_active = 1 AND s.id != ?
            AND s.id NOT IN (
-             SELECT seat_id FROM bookings
-             WHERE library_id = ? AND booking_date = ? AND slot_id = ?
-               AND status IN ('CONFIRMED', 'CHECKED_IN')
+             SELECT b.seat_id FROM bookings b
+             JOIN time_slots sl ON sl.id = b.slot_id
+             WHERE b.library_id = ? AND b.booking_date = ?
+               AND b.status IN ('CONFIRMED', 'CHECKED_IN')
+               AND (sl.start_time < ? AND sl.end_time > ?)
            )
            AND s.id NOT IN (
              SELECT seat_id FROM waitlist_entries
              WHERE slot_id = ? AND booking_date = ? AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()
            )
          LIMIT 15`,
-        [libraryId, seatId, libraryId, date, slotId, slotId, date]
+        [libraryId, seatId, libraryId, date, endTime, startTime, slotId, date]
       );
 
       // Fetch user preferences

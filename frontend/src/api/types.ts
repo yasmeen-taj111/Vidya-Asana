@@ -53,12 +53,23 @@ export interface Library {
 export interface TimeSlot {
   id: string;
   libraryId: string;
-  name: SlotName;
+  name: SlotName | string;
   startTime: string;
   endTime: string;
   isFree: boolean;
   pricePaise: number;
   isActive: boolean;
+}
+
+export interface UnbookableInterval {
+  id: string;
+  libraryId: string;
+  date?: string | null;
+  startTime: string;
+  endTime: string;
+  reason: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface SeatAttributes {

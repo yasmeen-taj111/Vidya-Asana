@@ -140,10 +140,43 @@ discoveryRouter.get('/libraries/:id/floors', async (req, res, next) => {
   }
 });
 
-// GET /libraries/:id/floors/:floorId/grid?date=&slotId=
+// GET /libraries/:id/intervals?date=
+discoveryRouter.get('/libraries/:id/intervals', async (req, res, next) => {
+  try {
+    const { date } = req.query;
+    let sql = 'SELECT * FROM library_unbookable_intervals WHERE library_id = ?';
+    const params: any[] = [req.params.id];
+    if (date) {
+      sql += ' AND (date IS NULL OR date = ?)';
+      params.push(date);
+    }
+    sql += ' ORDER BY start_time ASC';
+    const rows = await query<any[]>(sql, params);
+    sendSuccess(
+      res,
+      rows.map((r) => ({
+        id: r.id,
+        libraryId: r.library_id,
+        date: r.date ? (typeof r.date === 'string' ? r.date.slice(0, 10) : new Date(r.date).toISOString().slice(0, 10)) : null,
+        startTime: r.start_time,
+        endTime: r.end_time,
+        reason: r.reason,
+      }))
+    );
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /libraries/:id/floors/:floorId/grid?date=&slotId=&startTime=&endTime=
 discoveryRouter.get('/libraries/:id/floors/:floorId/grid', optionalAuth, async (req, res, next) => {
   try {
-    const { date, slotId } = req.query;
+    const { date, slotId, startTime, endTime } = req.query as {
+      date?: string;
+      slotId?: string;
+      startTime?: string;
+      endTime?: string;
+    };
     const [floor] = await query('SELECT * FROM floors WHERE id = ? AND library_id = ?', [req.params.floorId, req.params.id]);
     if (!floor) throw new AppError('NOT_FOUND', 'Floor not found', 404);
 
@@ -153,7 +186,28 @@ discoveryRouter.get('/libraries/:id/floors/:floorId/grid', optionalAuth, async (
     // Active bookings for status computation
     let activeBookings: any[] = [];
     let heldWaitlist: any[] = [];
-    if (date && slotId) {
+    let isClosed = false;
+    let closureReason = '';
+
+    if (date && (startTime && endTime)) {
+      const closures = await query<any[]>(
+        'SELECT reason FROM library_unbookable_intervals WHERE library_id = ? AND (date IS NULL OR date = ?) AND (start_time < ? AND end_time > ?)',
+        [req.params.id, date, endTime, startTime]
+      );
+      if (closures.length > 0) {
+        isClosed = true;
+        closureReason = closures[0].reason;
+      }
+
+      activeBookings = await query(
+        `SELECT b.seat_id, b.user_id, b.status
+         FROM bookings b
+         JOIN time_slots ts ON ts.id = b.slot_id
+         WHERE b.library_id = ? AND b.booking_date = ? AND b.status IN ("CONFIRMED", "CHECKED_IN")
+           AND (ts.start_time < ? AND ts.end_time > ?)`,
+        [req.params.id, date, endTime, startTime]
+      );
+    } else if (date && slotId) {
       activeBookings = await query(
         'SELECT seat_id, user_id, status FROM bookings WHERE library_id = ? AND slot_id = ? AND booking_date = ? AND status IN ("CONFIRMED", "CHECKED_IN")',
         [req.params.id, slotId, date]
@@ -172,9 +226,9 @@ discoveryRouter.get('/libraries/:id/floors/:floorId/grid', optionalAuth, async (
         const seat = seatRows.find((s) => s.grid_row === r && s.grid_col === c);
         if (seat) {
           let status = 'AVAILABLE';
-          if (!seat.is_active) {
+          if (!seat.is_active || isClosed) {
             status = 'MAINTENANCE';
-          } else if (date && slotId) {
+          } else if (date && (slotId || (startTime && endTime))) {
             const booking = activeBookings.find((b) => b.seat_id === seat.id);
             if (booking) {
               status = currentUserId && booking.user_id === currentUserId ? 'YOURS' : 'BOOKED';

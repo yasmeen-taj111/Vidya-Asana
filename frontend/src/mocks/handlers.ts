@@ -52,6 +52,26 @@ import { mockSocketInstance } from '../realtime/socket';
 
 const BASE = '*/api/v1';
 
+interface MockIntervalRecord {
+  id: string;
+  libraryId: string;
+  date?: string | null;
+  startTime: string;
+  endTime: string;
+  reason: string;
+}
+
+const mockStoredIntervals: MockIntervalRecord[] = [
+  {
+    id: 'int-1',
+    libraryId: 'lib-1',
+    date: null,
+    startTime: '13:00',
+    endTime: '14:00',
+    reason: 'Daily Sanitization & Staff Lunch',
+  },
+];
+
 export const handlers = [
   // 4.1 Auth
   http.post(`${BASE}/auth/login`, async ({ request }) => {
@@ -450,6 +470,44 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: foundSeat });
   }),
 
+  http.get(`${BASE}/admin/intervals`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const result = mockStoredIntervals.filter((i) => i.libraryId === lib.id);
+    return HttpResponse.json({ success: true, data: result });
+  }),
+
+  http.post(`${BASE}/admin/intervals`, async ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const body = (await request.json()) as any;
+    const newInt: MockIntervalRecord = {
+      id: `int-${Date.now()}`,
+      libraryId: lib.id,
+      date: body.date || null,
+      startTime: body.startTime,
+      endTime: body.endTime,
+      reason: body.reason,
+    };
+    mockStoredIntervals.push(newInt);
+    return HttpResponse.json({ success: true, data: newInt }, { status: 201 });
+  }),
+
+  http.delete(`${BASE}/admin/intervals/:id`, ({ params }) => {
+    const idx = mockStoredIntervals.findIndex((i) => i.id === params.id);
+    if (idx !== -1) mockStoredIntervals.splice(idx, 1);
+    return HttpResponse.json({ success: true, data: { ok: true } });
+  }),
+
+  http.get(`${BASE}/libraries/:id/intervals`, ({ params, request }) => {
+    const url = new URL(request.url);
+    const date = url.searchParams.get('date');
+    const result = mockStoredIntervals.filter(
+      (i) => i.libraryId === params.id && (!i.date || !date || i.date === date)
+    );
+    return HttpResponse.json({ success: true, data: result });
+  }),
+
   http.get(`${BASE}/admin/slots`, ({ request }) => {
     const user = resolveCurrentUser(request);
     const lib = getLibraryForAdmin(user);
@@ -789,17 +847,53 @@ export const handlers = [
   // 4.5 Bookings
   http.post(`${BASE}/bookings`, async ({ request }) => {
     const { alwaysFailNext } = useUiStore.getState();
-    const body = (await request.json()) as { libraryId: string; seatId: string; slotId: string; date: string };
+    const body = (await request.json()) as { libraryId: string; seatId: string; slotId?: string; startTime?: string; endTime?: string; date: string };
     const currentUser = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
     const allBookings = getStoredBookings();
+
+    // Prevent negative booking (past time on today)
+    const todayStr = new Date().toISOString().slice(0, 10);
+    if (body.date < todayStr) {
+      return HttpResponse.json(
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Cannot make a booking for a past date.' } },
+        { status: 400 }
+      );
+    }
+    if (body.date === todayStr && body.startTime) {
+      const now = new Date();
+      const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (body.startTime <= curTime) {
+        return HttpResponse.json(
+          { success: false, error: { code: 'BAD_REQUEST', message: 'Cannot book a slot on time that has already passed.' } },
+          { status: 400 }
+        );
+      }
+    }
+
+    const libSlots = getStoredSlotsForLibrary(body.libraryId);
+    let slot = libSlots.find((s) => s.id === body.slotId) || mockSlots.find((s) => s.id === body.slotId);
+    if (!slot && body.startTime && body.endTime) {
+      slot = {
+        id: `slot-${body.startTime.replace(':', '')}-${body.endTime.replace(':', '')}`,
+        libraryId: body.libraryId,
+        name: `${body.startTime} - ${body.endTime}`,
+        startTime: body.startTime,
+        endTime: body.endTime,
+        isFree: true,
+        pricePaise: 0,
+        isActive: true,
+      };
+    } else if (!slot) {
+      slot = mockSlots[0];
+    }
 
     // Check if user already has an active booking for this time slot on this date
     const userOverlap = allBookings.find(
       (b) =>
         b.userId === currentUser.id &&
-        b.slot.id === body.slotId &&
         b.date === body.date &&
-        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN') &&
+        (b.slot.id === slot.id || (b.slot.startTime < slot.endTime && b.slot.endTime > slot.startTime))
     );
 
     if (userOverlap) {
@@ -848,15 +942,15 @@ export const handlers = [
     const existing = allBookings.find(
       (b) =>
         b.seat.id === body.seatId &&
-        b.slot.id === body.slotId &&
         b.date === body.date &&
-        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN') &&
+        (b.slot.id === slot.id || (b.slot.startTime < slot.endTime && b.slot.endTime > slot.startTime))
     );
 
     if (existing) {
       const bookedSeatIds = new Set(
         allBookings
-          .filter((b) => b.slot.id === body.slotId && b.date === body.date && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN'))
+          .filter((b) => b.date === body.date && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN'))
           .map((b) => b.seat.id)
       );
       bookedSeatIds.add(body.seatId);
@@ -888,8 +982,6 @@ export const handlers = [
     }
 
     const lib = findStoredLibraryById(body.libraryId);
-    const libSlots = getStoredSlotsForLibrary(body.libraryId);
-    const slot = libSlots.find((s) => s.id === body.slotId) || mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
     let seat: Seat | null = null;
     let floorLabel = 'Floor 1 - Main Hall';
 

@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import { ApiResponse, Library, TimeSlot, FloorGrid, SeatSuggestion, SeatType } from './types';
+import { ApiResponse, Library, TimeSlot, FloorGrid, SeatSuggestion, SeatType, UnbookableInterval } from './types';
 
 export interface DiscoverParams {
   q?: string;
@@ -63,11 +63,25 @@ export const librariesApi = {
     return (res as unknown as ApiResponse<{ id: string; floorNumber: number; label: string; rows: number; cols: number }[]>).data;
   },
 
-  async getFloorGrid(libraryId: string, floorId: string, date?: string, slotId?: string): Promise<FloorGrid> {
+  async getFloorGrid(
+    libraryId: string,
+    floorId: string,
+    date?: string,
+    slotId?: string,
+    startTime?: string,
+    endTime?: string
+  ): Promise<FloorGrid> {
     const res = await apiClient.get<ApiResponse<FloorGrid>>(`/libraries/${libraryId}/floors/${floorId}/grid`, {
-      params: { date, slotId },
+      params: { date, slotId, startTime, endTime },
     });
     return (res as unknown as ApiResponse<FloorGrid>).data;
+  },
+
+  async getIntervals(libraryId: string, date?: string): Promise<UnbookableInterval[]> {
+    const res = await apiClient.get<ApiResponse<UnbookableInterval[]>>(`/libraries/${libraryId}/intervals`, {
+      params: { date },
+    });
+    return (res as unknown as ApiResponse<UnbookableInterval[]>).data;
   },
 
   async suggestSeats(libraryId: string, payload: SuggestSeatsPayload): Promise<SeatSuggestion[]> {

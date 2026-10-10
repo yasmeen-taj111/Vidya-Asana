@@ -12,6 +12,7 @@ import {
   Facing,
   SeatAttributes,
   CellType,
+  UnbookableInterval,
 } from './types';
 
 export interface GenerateFloorSpec {
@@ -99,6 +100,20 @@ export const adminApi = {
 
   async deleteSlot(slotId: string): Promise<void> {
     await apiClient.delete(`/admin/slots/${slotId}`);
+  },
+
+  async getIntervals(): Promise<UnbookableInterval[]> {
+    const res = await apiClient.get<ApiResponse<UnbookableInterval[]>>('/admin/intervals');
+    return (res as unknown as ApiResponse<UnbookableInterval[]>).data;
+  },
+
+  async createInterval(data: { date?: string | null; startTime: string; endTime: string; reason: string }): Promise<UnbookableInterval> {
+    const res = await apiClient.post<ApiResponse<UnbookableInterval>>('/admin/intervals', data);
+    return (res as unknown as ApiResponse<UnbookableInterval>).data;
+  },
+
+  async deleteInterval(id: string): Promise<void> {
+    await apiClient.delete(`/admin/intervals/${id}`);
   },
 
   async getBookings(params?: { date?: string; slotId?: string; status?: string; page?: number }): Promise<{ bookings: Booking[]; meta?: ApiResponse<unknown>['meta'] }> {

@@ -90,7 +90,7 @@ export const AdminLayout: React.FC = () => {
   const navItems = [
     { label: 'Overview', path: '/admin', icon: LayoutDashboard },
     { label: 'Seats & Grid', path: '/admin/seats', icon: Grid },
-    { label: 'Time Slots', path: '/admin/slots', icon: Clock },
+    { label: 'Closures & Hours', path: '/admin/slots', icon: Clock },
     { label: 'Bookings', path: '/admin/bookings', icon: BookOpen },
     { label: 'Scan QR', path: '/admin/scan', icon: QrCode },
     { label: 'Walk-In', path: '/admin/walk-in', icon: UserPlus },

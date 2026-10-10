@@ -4,7 +4,9 @@ import { ApiResponse, Booking } from './types';
 export interface CreateBookingPayload {
   libraryId: string;
   seatId: string;
-  slotId: string;
+  slotId?: string;
+  startTime?: string;
+  endTime?: string;
   date: string;
 }
 
