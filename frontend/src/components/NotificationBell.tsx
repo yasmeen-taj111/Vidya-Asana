@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Bell, Check, BookOpen, AlertCircle, Clock, Sparkles, CheckCircle2, XCircle } from 'lucide-react';
 import { notificationsApi } from '../api/notifications';
@@ -13,6 +13,34 @@ export const NotificationBell: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Close notification popup when clicking anywhere outside or pressing Escape
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen]);
 
   const loadNotifications = async () => {
     try {
@@ -81,7 +109,7 @@ export const NotificationBell: React.FC = () => {
   };
 
   return (
-    <div className="relative">
+    <div ref={containerRef} className="relative">
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="relative p-2 text-slate-600 hover:text-slate-900 rounded-lg hover:bg-slate-100 transition-colors"

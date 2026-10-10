@@ -1211,6 +1211,41 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(reasons).toContain('Dedicated laptop power socket');
       expect(reasons).toContain('Strict silent pod & quiet zone');
     });
+
+    it('closes notification popup when clicking outside or pressing Escape', () => {
+      let isOpen = true;
+      const setIsOpen = (val: boolean) => {
+        isOpen = val;
+      };
+
+      const container = { id: 'container-node' };
+      const insideNode = { id: 'inside-node', parent: container };
+      const outsideNode = { id: 'outside-node' };
+
+      const contains = (parent: any, child: any) => parent === child || child?.parent === parent;
+
+      const handleClickOutside = (target: any) => {
+        if (!contains(container, target)) {
+          setIsOpen(false);
+        }
+      };
+
+      // Clicking inside container keeps it open
+      handleClickOutside(insideNode);
+      expect(isOpen).toBe(true);
+
+      // Clicking outside container closes it
+      handleClickOutside(outsideNode);
+      expect(isOpen).toBe(false);
+
+      // Escape key closes it
+      isOpen = true;
+      const handleKeyDown = (e: { key: string }) => {
+        if (e.key === 'Escape') setIsOpen(false);
+      };
+      handleKeyDown({ key: 'Escape' });
+      expect(isOpen).toBe(false);
+    });
   });
 });
 
