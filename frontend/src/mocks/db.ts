@@ -270,6 +270,12 @@ export const mockFloorGrids: Record<string, FloorGrid> = {
 
 const todayStr = new Date().toLocaleDateString('en-CA');
 
+const defaultGraceDate = (() => {
+  const d = new Date();
+  d.setHours(6, 15, 0, 0);
+  return d.toISOString();
+})();
+
 export const mockBookings: Booking[] = [
   {
     id: 'bk-101',
@@ -285,7 +291,7 @@ export const mockBookings: Booking[] = [
     userId: 'usr-4',
     pricePaise: 5000,
     paymentStatus: 'PAID',
-    graceUntil: `${todayStr}T06:15:00.000Z`,
+    graceUntil: defaultGraceDate,
     arrivalConfirmed: false,
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
@@ -303,7 +309,7 @@ export const mockBookings: Booking[] = [
     userId: 'usr-5',
     pricePaise: 5000,
     paymentStatus: 'PAID',
-    graceUntil: `${todayStr}T06:15:00.000Z`,
+    graceUntil: defaultGraceDate,
     arrivalConfirmed: true,
     checkedInAt: `${todayStr}T06:12:00.000Z`,
     createdAt: new Date(Date.now() - 7200000).toISOString(),

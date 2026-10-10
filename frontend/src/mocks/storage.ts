@@ -135,8 +135,81 @@ export function resolveCurrentUser(request?: Request): User | null {
 // -------------------------------------------------------------
 // 3. Bookings Store
 // -------------------------------------------------------------
+export function autoExpireOverdueBookings(bookings?: Booking[]): { bookings: Booking[]; expiredCount: number } {
+  const all = bookings || loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  const now = new Date();
+  const nowMs = now.getTime();
+  let updatedAny = false;
+  let expiredCount = 0;
+
+  for (const b of all) {
+    if (b.status === 'CONFIRMED' && !b.checkedInAt) {
+      let slotStartMs = 0;
+      if (b.date && b.slot?.startTime) {
+        const year = parseInt(b.date.substring(0, 4));
+        const month = parseInt(b.date.substring(5, 7)) - 1;
+        const day = parseInt(b.date.substring(8, 10));
+        const [startH, startM] = b.slot.startTime.split(':').map(Number);
+        slotStartMs = new Date(year, month, day, startH, startM, 0, 0).getTime();
+      }
+
+      const defaultBufferExpiryMs = slotStartMs > 0 ? slotStartMs + 15 * 60 * 1000 : 0;
+      let graceExpiryMs = 0;
+      if (b.graceUntil) {
+        graceExpiryMs = new Date(b.graceUntil).getTime();
+      }
+
+      let isExpired = false;
+      if (b.arrivalConfirmed) {
+        isExpired = graceExpiryMs > 0 && nowMs >= graceExpiryMs;
+      } else {
+        if (graceExpiryMs > 0 && defaultBufferExpiryMs > 0) {
+          isExpired = nowMs >= Math.max(graceExpiryMs, defaultBufferExpiryMs);
+        } else if (graceExpiryMs > 0) {
+          isExpired = nowMs >= graceExpiryMs;
+        } else if (defaultBufferExpiryMs > 0) {
+          isExpired = nowMs >= defaultBufferExpiryMs;
+        }
+      }
+
+      if (isExpired) {
+        b.status = 'NO_SHOW';
+        b.cancelledAt = now.toISOString();
+        updatedAny = true;
+        expiredCount++;
+
+        const notifTitle = 'Slot Cancelled (15-Min Buffer Expired)';
+        const existingNotifs = loadJson<StoredNotification[]>('va_mock_notifications', initialTaggedNotifications);
+        const alreadyNotified = existingNotifs.some(
+          (n) => n.userId === b.userId && n.data?.bookingId === b.id && n.type === 'NO_SHOW'
+        );
+        if (!alreadyNotified) {
+          existingNotifs.unshift({
+            id: `ntf-noshow-${b.id}-${Date.now()}`,
+            userId: b.userId || 'usr-4',
+            type: 'NO_SHOW',
+            title: notifTitle,
+            body: `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`,
+            isRead: false,
+            data: { bookingId: b.id },
+            createdAt: now.toISOString(),
+          });
+          saveJson('va_mock_notifications', existingNotifs);
+        }
+      }
+    }
+  }
+
+  if (updatedAny) {
+    saveJson('va_mock_bookings', all);
+  }
+
+  return { bookings: all, expiredCount };
+}
+
 export function getStoredBookings(): Booking[] {
-  return loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  const raw = loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  return autoExpireOverdueBookings(raw).bookings;
 }
 
 export function saveStoredBooking(booking: Booking): void {

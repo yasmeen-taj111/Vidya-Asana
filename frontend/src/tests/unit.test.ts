@@ -1071,6 +1071,41 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(reminderPayload.bookingId).toBe(bookingId);
       expect(reminderPayload.message).toContain('Please confirm if you are coming');
     });
+
+    it('automatically transitions overdue bookings to NO_SHOW on active read and records cancellation timestamp', () => {
+      const studentId = `usr-autoread-${Date.now()}`;
+      const seat = allSeats[4];
+      const slot = mockSlots[0];
+      const bookingId = `bk-overdue-read-${Date.now()}`;
+
+      // Create a booking whose grace period expired 5 minutes ago
+      const expiredTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-AUTOREAD',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-10-11',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: expiredTime,
+        arrivalConfirmed: true,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Active read through getStoredBookings triggers autoExpireOverdueBookings
+      const bookings = getStoredBookings();
+      const target = bookings.find((b) => b.id === bookingId);
+      expect(target).toBeDefined();
+      expect(target?.status).toBe('NO_SHOW');
+      expect(target?.cancelledAt).toBeDefined();
+    });
   });
 });
 

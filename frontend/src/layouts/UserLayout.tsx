@@ -47,51 +47,55 @@ export const UserLayout: React.FC = () => {
 
         for (const b of list) {
           const bDate = typeof b.date === 'string' ? b.date.substring(0, 10) : '';
-          if (b.status === 'CONFIRMED' && bDate === todayStr) {
-            if (b.slot && b.slot.startTime <= curTimeStr && b.slot.endTime > curTimeStr) {
-              const [startH, startM] = b.slot.startTime.split(':').map(Number);
-              const slotStartMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), startH, startM, 0).getTime();
-              const defaultBufferExpiryMs = slotStartMs + 15 * 60 * 1000;
+          const [startH, startM] = (b.slot?.startTime || '00:00').split(':').map(Number);
+          
+          let slotStartMs = 0;
+          if (bDate) {
+            const [yr, mo, dy] = bDate.split('-').map(Number);
+            slotStartMs = new Date(yr, mo - 1, dy, startH, startM, 0, 0).getTime();
+          }
+          const defaultBufferExpiryMs = slotStartMs > 0 ? slotStartMs + 15 * 60 * 1000 : 0;
+          const graceMs = b.graceUntil ? new Date(b.graceUntil).getTime() : defaultBufferExpiryMs;
 
-              if (!b.arrivalConfirmed && !b.checkedInAt) {
-                if (nowMs >= defaultBufferExpiryMs) {
-                  // 15-minute buffer has expired without check-in -> auto cancel slot
-                  try {
-                    await bookingsApi.cancelBooking(b.id);
-                  } catch {}
-                  const useMocks = import.meta.env.VITE_USE_MOCKS === 'true';
-                  if (useMocks) {
-                    mockSocketInstance.simulateBookingReleased(
-                      b.id,
-                      'NO_SHOW',
-                      `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`
-                    );
-                  }
-                } else if (!useUiStore.getState().activeReminder) {
-                  // Within the 15-minute buffer -> immediately open reminder popup modal
-                  useUiStore.getState().setReminder({
-                    bookingId: b.id,
-                    message: `Your study slot at ${b.libraryName} (${b.seat?.label || 'Seat'}) has started. Are you coming or not for the slot?`,
-                    graceUntil: b.graceUntil || new Date(defaultBufferExpiryMs).toISOString(),
-                  });
-                  break;
+          // Check if active reminder is open for this booking but it is now NO_SHOW or CANCELLED
+          const curReminder = useUiStore.getState().activeReminder;
+          if (curReminder?.bookingId === b.id && (b.status === 'NO_SHOW' || b.status === 'CANCELLED')) {
+            useUiStore.getState().setReminder(null);
+            useUiStore.getState().addToast({
+              type: 'error',
+              title: 'Slot Cancelled',
+              message: `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`,
+            });
+          }
+
+          if (b.status === 'CONFIRMED' && !b.checkedInAt) {
+            const hasStarted = slotStartMs > 0 && nowMs >= slotStartMs;
+            if (hasStarted) {
+              const bufferExpired = b.arrivalConfirmed
+                ? (graceMs > 0 && nowMs >= graceMs)
+                : (nowMs >= Math.max(defaultBufferExpiryMs, graceMs));
+
+              if (bufferExpired) {
+                // 15-minute buffer expired! Auto cancel and trigger release notification
+                try {
+                  await bookingsApi.cancelBooking(b.id);
+                } catch {}
+                const useMocks = import.meta.env.VITE_USE_MOCKS === 'true';
+                if (useMocks) {
+                  mockSocketInstance.simulateBookingReleased(
+                    b.id,
+                    'NO_SHOW',
+                    `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`
+                  );
                 }
-              } else if (b.arrivalConfirmed && !b.checkedInAt) {
-                // Buffer was extended by clicking Yes -> check if extended buffer expired
-                const graceMs = new Date(b.graceUntil).getTime();
-                if (nowMs >= graceMs) {
-                  try {
-                    await bookingsApi.cancelBooking(b.id);
-                  } catch {}
-                  const useMocks = import.meta.env.VITE_USE_MOCKS === 'true';
-                  if (useMocks) {
-                    mockSocketInstance.simulateBookingReleased(
-                      b.id,
-                      'NO_SHOW',
-                      `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`
-                    );
-                  }
-                }
+              } else if (!b.arrivalConfirmed && !useUiStore.getState().activeReminder) {
+                // Within 15-minute buffer -> immediately open reminder popup modal
+                useUiStore.getState().setReminder({
+                  bookingId: b.id,
+                  message: `Your study slot at ${b.libraryName} (${b.seat?.label || 'Seat'}) has started. Are you coming or not for the slot?`,
+                  graceUntil: b.graceUntil || new Date(defaultBufferExpiryMs).toISOString(),
+                });
+                break;
               }
             }
           }

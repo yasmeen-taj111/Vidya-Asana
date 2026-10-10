@@ -86,11 +86,11 @@ async function processNoShows() {
      JOIN libraries l ON l.id = b.library_id
      JOIN seats s ON s.id = b.seat_id
      WHERE b.status = 'CONFIRMED'
-       AND b.grace_until <= UTC_TIMESTAMP()`
+       AND (b.grace_until <= UTC_TIMESTAMP() OR b.grace_until <= NOW())`
   );
 
   for (const b of expiredBookings) {
-    await query(`UPDATE bookings SET status = 'NO_SHOW' WHERE id = ?`, [b.id]);
+    await query(`UPDATE bookings SET status = 'NO_SHOW', cancelled_at = NOW() WHERE id = ?`, [b.id]);
 
     const dateStr =
       typeof b.booking_date === 'string'

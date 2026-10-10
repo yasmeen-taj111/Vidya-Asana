@@ -386,6 +386,52 @@ bookingsRouter.post('/', authenticate, bookingRateLimiter, async (req, res, next
 bookingsRouter.get('/me', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
+
+    // Active read auto-expiry: any confirmed booking whose 15-minute buffer has expired transitions to NO_SHOW immediately
+    try {
+      const expiredBookings = await query<any[]>(
+        `SELECT b.id, b.library_id, b.seat_id, b.slot_id, b.booking_date, b.code, b.user_id
+         FROM bookings b
+         WHERE b.user_id = ? AND b.status = 'CONFIRMED'
+           AND (b.grace_until <= UTC_TIMESTAMP() OR b.grace_until <= NOW())`,
+        [userId]
+      );
+
+      if (expiredBookings.length > 0) {
+        await query(
+          `UPDATE bookings
+           SET status = 'NO_SHOW', cancelled_at = NOW()
+           WHERE user_id = ? AND status = 'CONFIRMED'
+             AND (grace_until <= UTC_TIMESTAMP() OR grace_until <= NOW())`,
+          [userId]
+        );
+
+        for (const exp of expiredBookings) {
+          const dateStr =
+            typeof exp.booking_date === 'string'
+              ? exp.booking_date.substring(0, 10)
+              : new Date(exp.booking_date).toISOString().substring(0, 10);
+
+          emitSeatUpdated(exp.library_id, exp.seat_id, exp.slot_id, dateStr, 'AVAILABLE');
+          emitBookingReleased(exp.user_id, {
+            bookingId: exp.id,
+            reason: 'NO_SHOW',
+            message: `Your reservation (${exp.code}) was automatically cancelled because the 15-minute buffer wait time expired.`,
+          });
+          notifyNextInWaitlist(exp.seat_id, exp.slot_id, dateStr).catch(() => {});
+          createNotification({
+            userId,
+            type: 'NO_SHOW',
+            title: 'Slot Cancelled (15-Min Buffer Expired)',
+            body: `Your reservation (${exp.code}) was automatically cancelled because 15 minutes elapsed without check-in. The seat has been released.`,
+            data: { bookingId: exp.id },
+          }).catch(() => {});
+        }
+      }
+    } catch (expErr) {
+      console.warn('[Bookings] Auto-expiry check error on /bookings/me:', expErr);
+    }
+
     const { status, upcoming, page = 1, pageSize = 20 } = req.query;
 
     let sql = `${BOOKING_SELECT_SQL} WHERE b.user_id = ?`;

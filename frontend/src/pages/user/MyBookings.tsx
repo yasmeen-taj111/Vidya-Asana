@@ -28,26 +28,39 @@ export const MyBookings: React.FC = () => {
 
   const { addToast } = useUiStore();
 
-  const loadBookings = async () => {
+  const loadBookings = async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const res = await bookingsApi.getMyBookings();
       setBookings(res.bookings);
       if (selectedQRBooking) {
         const matching = res.bookings.find((b) => b.id === selectedQRBooking.booking.id);
         if (matching) {
-          setSelectedQRBooking((prev) => (prev ? { ...prev, booking: matching } : null));
+          if (matching.status === 'NO_SHOW' || matching.status === 'CANCELLED') {
+            setSelectedQRBooking(null);
+            addToast({
+              type: 'error',
+              title: 'Pass Expired',
+              message: 'This booking was cancelled because the 15-minute buffer expired.',
+            });
+          } else {
+            setSelectedQRBooking((prev) => (prev ? { ...prev, booking: matching } : null));
+          }
         }
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadBookings();
+    loadBookings(true);
+    const interval = setInterval(() => {
+      loadBookings(false);
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   useRealtimeBookings(loadBookings);
@@ -232,10 +245,16 @@ export const MyBookings: React.FC = () => {
                         </div>
                       );
                     } else {
+                      const graceExpiry = b.graceUntil ? new Date(b.graceUntil).getTime() : 0;
+                      const remainingSec = graceExpiry > 0 ? Math.max(0, Math.round((graceExpiry - Date.now()) / 1000)) : 0;
+                      const remMin = Math.floor(remainingSec / 60);
+                      const remSec = remainingSec % 60;
                       return (
                         <div className="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl w-fit flex items-center gap-1.5 font-medium">
-                          <Clock className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>15-Minute Buffer Active — Please scan QR pass at entrance</span>
+                          <Clock className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+                          <span>
+                            15-Minute Buffer Active ({remMin}:{remSec < 10 ? `0${remSec}` : remSec} left) — Please scan QR pass at entrance
+                          </span>
                         </div>
                       );
                     }

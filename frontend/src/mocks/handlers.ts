@@ -973,9 +973,18 @@ export const handlers = [
       pricePaise: slot.pricePaise,
       paymentStatus: slot.isFree ? 'FREE' : 'PAID',
       graceUntil: (() => {
+        const [year, month, day] = body.date.split('-').map(Number);
         const [startH, startM] = slot.startTime.split(':').map(Number);
-        const slotStartMs = new Date(`${body.date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
-        return new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+        const [endH, endM] = slot.endTime.split(':').map(Number);
+        const slotStartLocal = new Date(year, month - 1, day, startH, startM, 0, 0);
+        const slotEndLocal = new Date(year, month - 1, day, endH, endM, 0, 0);
+        const now = new Date();
+        const isOngoing = slotStartLocal <= now && now < slotEndLocal;
+        if (isOngoing) {
+          const graceFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+          return (graceFromNow < slotEndLocal ? graceFromNow : slotEndLocal).toISOString();
+        }
+        return new Date(slotStartLocal.getTime() + 15 * 60 * 1000).toISOString();
       })(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),

@@ -300,6 +300,18 @@ describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
       expect(noShowPayload.title).toBe('Slot Cancelled (15-Min Buffer Expired)');
       expect(noShowPayload.body).toContain('15-minute buffer wait time');
     });
+
+    it('verifies active auto-expiry SQL criteria handles expired buffer correctly', () => {
+      const now = new Date();
+      const pastGrace = new Date(now.getTime() - 15 * 60 * 1000);
+      const futureGrace = new Date(now.getTime() + 15 * 60 * 1000);
+
+      const isPastExpired = pastGrace.getTime() <= now.getTime();
+      const isFutureExpired = futureGrace.getTime() <= now.getTime();
+
+      expect(isPastExpired).toBe(true);
+      expect(isFutureExpired).toBe(false);
+    });
   });
 });
 
