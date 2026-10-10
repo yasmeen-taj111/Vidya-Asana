@@ -277,11 +277,14 @@ export const handlers = [
   http.get(`${BASE}/owner/libraries`, ({ request }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
+    const isFree = url.searchParams.get('isFree');
     const q = url.searchParams.get('q');
 
     const libraries = getStoredLibraries();
     let filtered = [...libraries];
     if (status) filtered = filtered.filter((l) => l.status === status);
+    if (isFree === 'true') filtered = filtered.filter((l) => l.isFree);
+    if (isFree === 'false') filtered = filtered.filter((l) => !l.isFree);
     if (q) {
       const qLower = q.toLowerCase();
       filtered = filtered.filter(
@@ -702,6 +705,8 @@ export const handlers = [
     }
     if (isFree === 'true') {
       approved = approved.filter((l) => l.isFree);
+    } else if (isFree === 'false') {
+      approved = approved.filter((l) => !l.isFree);
     }
     if (seatType) {
       approved = approved.filter((l) => ((l.seatCounts as any) || {})[seatType] > 0);
@@ -714,12 +719,21 @@ export const handlers = [
     });
   }),
 
-  http.get(`${BASE}/recommendations/libraries`, () => {
+  http.get(`${BASE}/recommendations/libraries`, ({ request }) => {
+    const url = new URL(request.url);
+    const isFree = url.searchParams.get('isFree');
     const libraries = getStoredLibraries();
-    const scored = libraries
-      .filter((l) => l.status === 'APPROVED')
-      .map((l) => ({ ...l, matchScore: l.id === 'lib-1' ? 96 : 88 }));
-    return HttpResponse.json({ success: true, data: scored });
+    let scored = libraries.filter((l) => l.status === 'APPROVED');
+    if (isFree === 'true') {
+      scored = scored.filter((l) => l.isFree);
+    } else if (isFree === 'false') {
+      scored = scored.filter((l) => !l.isFree);
+    }
+    const mapped = scored.map((l) => ({
+      ...l,
+      matchScore: l.id === 'lib-1' ? 96 : l.id === 'lib-4' ? 94 : 88,
+    }));
+    return HttpResponse.json({ success: true, data: mapped });
   }),
 
   http.get(`${BASE}/libraries/:id`, ({ params }) => {

@@ -24,6 +24,7 @@ export const OwnerDashboard: React.FC = () => {
   const [stats, setStats] = useState<OwnerStats | null>(null);
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [filterAdmission, setFilterAdmission] = useState<'ALL' | 'FREE' | 'PAID'>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedLib, setSelectedLib] = useState<{ library: Library; admin: User } | null>(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -35,9 +36,15 @@ export const OwnerDashboard: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const isFreeParam =
+        filterAdmission === 'FREE' ? true : filterAdmission === 'PAID' ? false : undefined;
       const [sData, lData] = await Promise.all([
         ownerApi.getStats(),
-        ownerApi.getLibraries({ status: filterStatus || undefined, q: searchQuery || undefined }),
+        ownerApi.getLibraries({
+          status: filterStatus || undefined,
+          isFree: isFreeParam,
+          q: searchQuery || undefined,
+        }),
       ]);
       setStats(sData);
       setLibraries(lData.libraries);
@@ -50,7 +57,7 @@ export const OwnerDashboard: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [filterStatus, searchQuery]);
+  }, [filterStatus, filterAdmission, searchQuery]);
 
   useRealtimeBookings(loadData);
 
@@ -160,39 +167,69 @@ export const OwnerDashboard: React.FC = () => {
               />
             </div>
 
-            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
-              <button
-                onClick={() => setFilterStatus('')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                  filterStatus === '' ? 'bg-white shadow text-slate-900 font-bold' : 'text-slate-600'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setFilterStatus('PENDING')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                  filterStatus === 'PENDING' ? 'bg-amber-500 text-white shadow font-bold' : 'text-slate-600'
-                }`}
-              >
-                Pending
-              </button>
-              <button
-                onClick={() => setFilterStatus('APPROVED')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                  filterStatus === 'APPROVED' ? 'bg-emerald-600 text-white shadow font-bold' : 'text-slate-600'
-                }`}
-              >
-                Approved
-              </button>
-              <button
-                onClick={() => setFilterStatus('REJECTED')}
-                className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                  filterStatus === 'REJECTED' ? 'bg-rose-600 text-white shadow font-bold' : 'text-slate-600'
-                }`}
-              >
-                Rejected
-              </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
+                <button
+                  onClick={() => setFilterStatus('')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterStatus === '' ? 'bg-white shadow text-slate-900 font-bold' : 'text-slate-600'
+                  }`}
+                >
+                  All Status
+                </button>
+                <button
+                  onClick={() => setFilterStatus('PENDING')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterStatus === 'PENDING' ? 'bg-amber-500 text-white shadow font-bold' : 'text-slate-600'
+                  }`}
+                >
+                  Pending
+                </button>
+                <button
+                  onClick={() => setFilterStatus('APPROVED')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterStatus === 'APPROVED' ? 'bg-emerald-600 text-white shadow font-bold' : 'text-slate-600'
+                  }`}
+                >
+                  Approved
+                </button>
+                <button
+                  onClick={() => setFilterStatus('REJECTED')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterStatus === 'REJECTED' ? 'bg-rose-600 text-white shadow font-bold' : 'text-slate-600'
+                  }`}
+                >
+                  Rejected
+                </button>
+              </div>
+
+              {/* Admission Filter */}
+              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
+                <button
+                  onClick={() => setFilterAdmission('ALL')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterAdmission === 'ALL' ? 'bg-white shadow text-slate-900 font-bold' : 'text-slate-600'
+                  }`}
+                >
+                  All Admissions
+                </button>
+                <button
+                  onClick={() => setFilterAdmission('FREE')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterAdmission === 'FREE' ? 'bg-emerald-600 text-white shadow font-bold' : 'text-slate-600 hover:text-emerald-700'
+                  }`}
+                >
+                  🟢 Free Only
+                </button>
+                <button
+                  onClick={() => setFilterAdmission('PAID')}
+                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
+                    filterAdmission === 'PAID' ? 'bg-primary text-white shadow font-bold' : 'text-slate-600 hover:text-primary'
+                  }`}
+                >
+                  💳 Paid Only
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -204,6 +241,7 @@ export const OwnerDashboard: React.FC = () => {
               <tr>
                 <th className="py-4 px-6">Library Details</th>
                 <th className="py-4 px-6">Location</th>
+                <th className="py-4 px-6">Admission</th>
                 <th className="py-4 px-6">Capacity</th>
                 <th className="py-4 px-6">Status</th>
                 <th className="py-4 px-6 text-right">Action</th>
@@ -219,6 +257,17 @@ export const OwnerDashboard: React.FC = () => {
                   <td className="py-4 px-6">
                     <div className="text-slate-700">{lib.address}</div>
                     <div className="text-[11px] text-slate-400">{lib.city}</div>
+                  </td>
+                  <td className="py-4 px-6">
+                    <span
+                      className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                        lib.isFree
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                          : 'bg-blue-50 text-blue-700 border border-blue-200'
+                      }`}
+                    >
+                      {lib.isFree ? '🟢 Free Admission' : '💳 Paid Slots'}
+                    </span>
                   </td>
                   <td className="py-4 px-6">
                     <span className="font-semibold text-slate-900">{lib.totalSeats} Desks</span>
@@ -289,7 +338,15 @@ export const OwnerDashboard: React.FC = () => {
                 </div>
                 <div>
                   <span className="text-slate-400 block font-medium">Admission:</span>
-                  <span className="text-slate-800">{selectedLib.library.isFree ? 'Free' : 'Paid Slots'}</span>
+                  <span
+                    className={`inline-flex items-center gap-1 mt-0.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${
+                      selectedLib.library.isFree
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                        : 'bg-blue-50 text-blue-700 border border-blue-200'
+                    }`}
+                  >
+                    {selectedLib.library.isFree ? '🟢 Free Admission' : '💳 Paid Slots'}
+                  </span>
                 </div>
               </div>
             </div>

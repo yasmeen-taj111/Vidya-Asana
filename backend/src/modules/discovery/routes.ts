@@ -32,6 +32,8 @@ discoveryRouter.get('/libraries', async (req, res, next) => {
     }
     if (isFree === 'true') {
       sql += ' AND l.is_free = 1';
+    } else if (isFree === 'false') {
+      sql += ' AND l.is_free = 0';
     }
 
     const rows = await query(sql, params);
@@ -59,8 +61,8 @@ discoveryRouter.get('/libraries', async (req, res, next) => {
 // GET /recommendations/libraries
 discoveryRouter.get('/recommendations/libraries', optionalAuth, async (req, res, next) => {
   try {
-    const { lat, lng } = req.query;
-    const rows = await query(`
+    const { lat, lng, isFree } = req.query;
+    let recSql = `
       SELECT l.*,
         (SELECT COUNT(*) FROM floors f WHERE f.library_id = l.id) as floor_count,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.is_active = 1) as total_seats,
@@ -69,7 +71,13 @@ discoveryRouter.get('/recommendations/libraries', optionalAuth, async (req, res,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'ACCESSIBLE' AND s.is_active = 1) as count_accessible,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'COMPUTER' AND s.is_active = 1) as count_computer
       FROM libraries l WHERE l.status = 'APPROVED'
-    `);
+    `;
+    if (isFree === 'true') {
+      recSql += ' AND l.is_free = 1';
+    } else if (isFree === 'false') {
+      recSql += ' AND l.is_free = 0';
+    }
+    const rows = await query(recSql);
 
     const libraries = rows.map(mapLibraryRow);
     const uLat = lat ? parseFloat(lat as string) : 12.9716;

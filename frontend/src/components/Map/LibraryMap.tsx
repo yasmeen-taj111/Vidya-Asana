@@ -80,9 +80,13 @@ export const LibraryMap: React.FC<LibraryMapProps> = ({
                   <div className="flex items-center gap-2 pt-1 font-semibold text-primary">
                     {lib.distanceKm && <span>{lib.distanceKm} km away</span>}
                     {lib.isFree ? (
-                      <span className="text-emerald-600">Free Admission</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        🟢 Free Admission
+                      </span>
                     ) : (
-                      <span className="text-slate-700">Paid Slots</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                        💳 Paid Passes
+                      </span>
                     )}
                   </div>
                   <Link

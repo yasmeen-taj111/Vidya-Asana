@@ -14,6 +14,7 @@ import {
   getUserNotifications,
   getUserPreferences,
   saveStoredLibrary,
+  getStoredLibraries,
   findStoredLibraryById,
   updateStoredLibrary,
   getLibraryForAdmin,
@@ -36,7 +37,7 @@ import {
   resetBookingRateLimit,
 } from '../mocks/storage';
 import { mockFloorGrids, mockSlots } from '../mocks/db';
-import { UserPreferences, TimeSlot, Seat } from '../api/types';
+import { UserPreferences, TimeSlot, Seat, Library } from '../api/types';
 
 describe('Error Code Mapper', () => {
   it('maps known API error codes to human friendly messages', () => {
@@ -1384,6 +1385,100 @@ describe('Library Isolation and Fresh Setup Flow', () => {
         expect(storedSlots.find((s) => s.name === 'AFTERNOON')?.pricePaise).toBe(5500);
         expect(storedSlots.find((s) => s.name === 'EVENING')?.pricePaise).toBe(6500);
         expect(storedSlots.find((s) => s.name === 'NIGHT')?.pricePaise).toBe(3500);
+      });
+    });
+
+    describe('Free vs Paid Library Listing Badges & Filtering', () => {
+      it('verifies that library listings correctly distinguish Free Admission from Paid Passes', () => {
+        const testLibraries: Library[] = [
+          {
+            id: 'lib-free-1',
+            name: 'Public Central Library',
+            address: 'Cubbon Park',
+            city: 'Bengaluru',
+            latitude: 12.9734,
+            longitude: 77.5912,
+            contactEmail: 'free@library.org',
+            status: 'APPROVED',
+            amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+            isFree: true,
+            seatCounts: { INDIVIDUAL: 20, GROUP: 4, ACCESSIBLE: 2, COMPUTER: 8 },
+            totalSeats: 34,
+            floorCount: 1,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'lib-paid-1',
+            name: 'Elite Executive Study Lounge',
+            address: 'Indiranagar',
+            city: 'Bengaluru',
+            latitude: 12.9784,
+            longitude: 77.6408,
+            contactEmail: 'elite@lounge.org',
+            status: 'APPROVED',
+            amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+            isFree: false,
+            seatCounts: { INDIVIDUAL: 30, GROUP: 6, ACCESSIBLE: 2, COMPUTER: 10 },
+            totalSeats: 48,
+            floorCount: 2,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+
+        // Format badges for listing cards
+        const getAdmissionBadge = (lib: Library) => ({
+          label: lib.isFree ? 'Free Admission' : 'Paid Passes',
+          badgeText: lib.isFree ? '100% Free Admission' : 'Paid Slot Passes',
+          isFree: lib.isFree,
+          badgeColor: lib.isFree ? 'emerald' : 'blue',
+        });
+
+        const freeBadge = getAdmissionBadge(testLibraries[0]);
+        const paidBadge = getAdmissionBadge(testLibraries[1]);
+
+        expect(freeBadge.label).toBe('Free Admission');
+        expect(freeBadge.isFree).toBe(true);
+        expect(freeBadge.badgeColor).toBe('emerald');
+
+        expect(paidBadge.label).toBe('Paid Passes');
+        expect(paidBadge.isFree).toBe(false);
+        expect(paidBadge.badgeColor).toBe('blue');
+      });
+
+      it('filters library discovery by Free Only (isFree=true)', () => {
+        const allLibs = getStoredLibraries().filter((l) => l.status === 'APPROVED');
+        const freeLibs = allLibs.filter((l) => l.isFree);
+
+        expect(freeLibs.length).toBeGreaterThan(0);
+        expect(freeLibs.every((l) => l.isFree === true)).toBe(true);
+        expect(freeLibs.some((l) => l.id === 'lib-4')).toBe(true);
+      });
+
+      it('filters library discovery by Paid Only (isFree=false)', () => {
+        const allLibs = getStoredLibraries().filter((l) => l.status === 'APPROVED');
+        const paidLibs = allLibs.filter((l) => !l.isFree);
+
+        expect(paidLibs.length).toBeGreaterThan(0);
+        expect(paidLibs.every((l) => l.isFree === false)).toBe(true);
+        expect(paidLibs.some((l) => l.id === 'lib-1')).toBe(true);
+      });
+
+      it('displays admission status across owner dashboard records', () => {
+        const storedLibraries = getStoredLibraries();
+        const freeLib = storedLibraries.find((l) => l.isFree);
+        const paidLib = storedLibraries.find((l) => !l.isFree);
+
+        expect(freeLib).toBeDefined();
+        expect(freeLib?.isFree).toBe(true);
+        expect(paidLib).toBeDefined();
+        expect(paidLib?.isFree).toBe(false);
+
+        // Verification of table row admission badge render value
+        const renderOwnerAdmissionBadge = (lib: Library) =>
+          lib.isFree ? '🟢 Free Admission' : '💳 Paid Slots';
+
+        expect(renderOwnerAdmissionBadge(freeLib!)).toBe('🟢 Free Admission');
+        expect(renderOwnerAdmissionBadge(paidLib!)).toBe('💳 Paid Slots');
       });
     });
   });

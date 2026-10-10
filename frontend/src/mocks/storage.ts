@@ -607,7 +607,20 @@ export function getStoredLeaderboard(currentUserId: string): LeaderboardEntry[] 
 // 10. Libraries Store (Persistent & Per-Library Isolated)
 // -------------------------------------------------------------
 export function getStoredLibraries(): Library[] {
-  return loadJson<Library[]>('va_mock_libraries', initialMockLibraries);
+  const loaded = loadJson<Library[]>('va_mock_libraries', initialMockLibraries);
+  const merged = [...loaded];
+  for (const initLib of initialMockLibraries) {
+    const existing = merged.find((l) => l.id === initLib.id);
+    if (!existing) {
+      merged.push(initLib);
+    } else if (existing.isFree === undefined) {
+      existing.isFree = initLib.isFree;
+    }
+  }
+  return merged.map((lib) => ({
+    ...lib,
+    isFree: typeof lib.isFree === 'boolean' ? lib.isFree : (lib.id === 'lib-2' || lib.id === 'lib-4'),
+  }));
 }
 
 export function saveStoredLibrary(library: Library): void {
@@ -658,8 +671,17 @@ export function getLibraryForAdmin(user?: User | null): Library {
 // 11. Floors Store (Per-Library Isolated)
 // -------------------------------------------------------------
 export function getStoredFloorsForLibrary(libraryId: string): Record<string, FloorGrid> {
-  if (libraryId === 'lib-1') {
-    return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, mockFloorGrids);
+  if (libraryId === 'lib-1' || libraryId === 'lib-4') {
+    const defaultFloors: Record<string, FloorGrid> = {};
+    Object.entries(mockFloorGrids).forEach(([k, v]) => {
+      if (
+        (libraryId === 'lib-1' && (k === 'fl-1' || k === 'fl-2')) ||
+        (libraryId === 'lib-4' && (k === 'fl-lib-4-1' || k === 'fl-lib-4-2'))
+      ) {
+        defaultFloors[k] = v;
+      }
+    });
+    return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, defaultFloors);
   }
   return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, {});
 }
@@ -679,7 +701,16 @@ export function saveStoredFloorForLibrary(libraryId: string, floorGrid: FloorGri
 // -------------------------------------------------------------
 export function getStoredSlotsForLibrary(libraryId: string): TimeSlot[] {
   if (libraryId === 'lib-1') {
-    return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, initialMockSlots);
+    return loadJson<TimeSlot[]>(
+      `va_mock_slots_${libraryId}`,
+      initialMockSlots.filter((s) => s.libraryId === 'lib-1')
+    );
+  }
+  if (libraryId === 'lib-4') {
+    return loadJson<TimeSlot[]>(
+      `va_mock_slots_${libraryId}`,
+      initialMockSlots.filter((s) => s.libraryId === 'lib-4')
+    );
   }
   return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, []);
 }
