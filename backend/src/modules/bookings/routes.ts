@@ -464,10 +464,6 @@ bookingsRouter.get('/:id/qr', authenticate, async (req, res, next) => {
       return sendError(res, 'FORBIDDEN', 'Access denied', 403);
     }
 
-    if (b.status === 'CANCELLED' || b.status === 'NO_SHOW') {
-      return sendError(res, 'BOOKING_EXPIRED', 'This booking is no longer valid', 410);
-    }
-
     const dateStr = typeof b.booking_date === 'string' ? b.booking_date.substring(0, 10) : new Date(b.booking_date).toISOString().substring(0, 10);
     const [endH, endM] = b.end_time.split(':').map(Number);
     const expDate = new Date(`${dateStr}T${String(endH).padStart(2, '0')}:${String(endM).padStart(2, '0')}:00`);

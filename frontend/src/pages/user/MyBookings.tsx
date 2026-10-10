@@ -20,7 +20,7 @@ export const MyBookings: React.FC = () => {
   const [tab, setTab] = useState<'UPCOMING' | 'PAST' | 'CANCELLED'>('UPCOMING');
   const [selectedQRBooking, setSelectedQRBooking] = useState<{
     booking: Booking;
-    qrDataUrl: string;
+    qrDataUrl?: string;
   } | null>(null);
   const [cancellingBookingId, setCancellingBookingId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,8 @@ export const MyBookings: React.FC = () => {
       const qrData = await bookingsApi.getBookingQR(b.id);
       setSelectedQRBooking({ booking: b, qrDataUrl: qrData.qrDataUrl });
     } catch (err) {
-      console.error(err);
+      console.warn('[MyBookings] Falling back to client-generated QR code:', err);
+      setSelectedQRBooking({ booking: b });
     }
   };
 

@@ -1,6 +1,8 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+import QRCode from 'qrcode';
 import { Booking } from '../api/types';
-import { QrCode, Calendar, Clock, MapPin, Download, CheckCircle2 } from 'lucide-react';
+import { bookingsApi } from '../api/bookings';
+import { QrCode, Calendar, Download, Loader2 } from 'lucide-react';
 
 interface QRCardProps {
   booking: Booking;
@@ -8,6 +10,66 @@ interface QRCardProps {
 }
 
 export const QRCard: React.FC<QRCardProps> = ({ booking, qrDataUrl }) => {
+  const [activeQrUrl, setActiveQrUrl] = useState<string | null>(qrDataUrl || null);
+  const [loadingQr, setLoadingQr] = useState<boolean>(!qrDataUrl);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (qrDataUrl) {
+      setActiveQrUrl(qrDataUrl);
+      setLoadingQr(false);
+      return;
+    }
+
+    const resolveQR = async () => {
+      setLoadingQr(true);
+      // 1. First attempt to fetch the official signed QR token from the API
+      try {
+        if (booking?.id) {
+          const res = await bookingsApi.getBookingQR(booking.id);
+          if (isMounted && res?.qrDataUrl) {
+            setActiveQrUrl(res.qrDataUrl);
+            setLoadingQr(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('[QRCard] Backend QR fetch error, falling back to local generator:', err);
+      }
+
+      // 2. Fallback: generate a high-contrast scannable QR code directly from booking.code
+      // The backend admin scanner explicitly accepts the booking code as well!
+      try {
+        if (booking?.code) {
+          const dataUrl = await QRCode.toDataURL(booking.code, {
+            width: 300,
+            margin: 2,
+            color: {
+              dark: '#0A192F', // Navy matching our design system
+              light: '#FFFFFF',
+            },
+          });
+          if (isMounted) {
+            setActiveQrUrl(dataUrl);
+          }
+        }
+      } catch (qrGenErr) {
+        console.error('[QRCard] Failed to generate QR code fallback:', qrGenErr);
+      } finally {
+        if (isMounted) {
+          setLoadingQr(false);
+        }
+      }
+    };
+
+    resolveQR();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [booking?.id, booking?.code, qrDataUrl]);
+
   const downloadIcs = () => {
     const icsData = `BEGIN:VCALENDAR
 VERSION:2.0
@@ -32,9 +94,9 @@ END:VCALENDAR`;
   };
 
   const downloadQrImage = () => {
-    if (!qrDataUrl) return;
+    if (!activeQrUrl) return;
     const link = document.createElement('a');
-    link.href = qrDataUrl;
+    link.href = activeQrUrl;
     link.download = `vidya-asana-qr-${booking.code}.png`;
     document.body.appendChild(link);
     link.click();
@@ -74,11 +136,16 @@ END:VCALENDAR`;
 
       {/* QR Code Container */}
       <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 inline-block mb-3 shadow-inner">
-        {qrDataUrl ? (
+        {loadingQr ? (
+          <div className="w-48 h-48 flex flex-col items-center justify-center gap-2 text-slate-400">
+            <Loader2 className="w-8 h-8 animate-spin text-primary" />
+            <span className="text-[11px] font-medium text-slate-500">Generating Secure Pass...</span>
+          </div>
+        ) : activeQrUrl ? (
           <img
-            src={qrDataUrl}
-            alt="Entry QR Code"
-            className="w-48 h-48 mx-auto object-contain rounded-lg"
+            src={activeQrUrl}
+            alt={`Entry QR Code for ${booking.code}`}
+            className="w-48 h-48 mx-auto object-contain rounded-lg shadow-sm"
           />
         ) : (
           <div className="w-48 h-48 flex items-center justify-center text-slate-400">
@@ -131,7 +198,7 @@ END:VCALENDAR`;
 
       {/* Action buttons */}
       <div className="flex gap-2">
-        {qrDataUrl && (
+        {activeQrUrl && (
           <button
             onClick={downloadQrImage}
             type="button"
