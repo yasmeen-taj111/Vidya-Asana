@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { getErrorMessage } from '../utils/errorMessages';
 import { createDefaultFloorGrid } from '../mocks/db';
 import { generateChatResponse } from '../chat/chatEngine';
+import { renderFormattedText } from '../utils/formatText';
 import {
   saveStoredUser,
   findStoredUserByEmail,
@@ -487,6 +488,18 @@ describe('Library Isolation and Fresh Setup Flow', () => {
           expect(res.suggestedActions?.some((a) => a.payload.path === item.actionPath)).toBe(true);
         }
       }
+    });
+
+    it('renders **bold** markdown cleanly without showing raw asterisks', () => {
+      const rawText = "The **Pomodoro Technique** is a proven method for **25 Minutes Focus**.";
+      const elements = renderFormattedText(rawText, false);
+      expect(Array.isArray(elements)).toBe(true);
+
+      // Verify that no part has raw **
+      const renderedStrings = elements!.map((el: any) => (typeof el === 'string' ? el : el.props.children));
+      const fullText = renderedStrings.join('');
+      expect(fullText).not.toContain('**');
+      expect(fullText).toContain('The Pomodoro Technique is a proven method for 25 Minutes Focus.');
     });
   });
 });

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MessageSquare, X, Send, Bot, User as UserIcon, Sparkles } from 'lucide-react';
 import { chatApi } from '../api/chat';
+import { renderFormattedText } from '../utils/formatText';
 
 interface Message {
   id: string;
@@ -148,7 +149,7 @@ export const ChatWidget: React.FC = () => {
                         : 'bg-white text-slate-800 border border-slate-100 shadow-sm rounded-tl-none'
                     }`}
                   >
-                    {m.text}
+                    {renderFormattedText(m.text, m.sender === 'user')}
                   </div>
 
                   {m.suggestedActions && m.suggestedActions.length > 0 && (
