@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   XCircle,
   ShieldCheck,
+  RotateCw,
 } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
@@ -129,7 +130,16 @@ export const AdminLayout: React.FC = () => {
               <p className="font-semibold mb-1">Current Status: PENDING</p>
               <p>While awaiting approval, you can inspect your profile or reach out to support.</p>
             </div>
-            <div className="flex flex-col sm:flex-row gap-3 justify-center items-center">
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3 justify-center items-center">
+              <button
+                onClick={() => {
+                  adminApi.getLibrary().then((data) => setLibrary(data)).catch(console.error);
+                }}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover shadow-md shadow-primary/20 transition-all"
+              >
+                <RotateCw className="w-4 h-4" />
+                Check Approval Status
+              </button>
               <Link
                 to="/admin/profile"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all"

@@ -28,9 +28,24 @@ import {
   getUserStudyReport,
   getUserDashboard,
   getStoredLeaderboard,
+  getStoredLibraries,
+  saveStoredLibrary,
+  updateStoredLibrary,
+  findStoredLibraryById,
+  getLibraryForAdmin,
+  getStoredFloorsForLibrary,
+  saveStoredFloorsForLibrary,
+  saveStoredFloorForLibrary,
+  getStoredSlotsForLibrary,
+  saveStoredSlotsForLibrary,
+  addStoredSlotForLibrary,
+  updateStoredSlotForLibrary,
+  deleteStoredSlotForLibrary,
+  getStoredBookingsForLibrary,
+  getStoredAnalyticsForLibrary,
 } from './storage';
 import { useUiStore } from '../store/uiStore';
-import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry } from '../api/types';
+import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library } from '../api/types';
 
 const BASE = 'http://localhost:4000/api/v1';
 
@@ -118,6 +133,14 @@ export const handlers = [
       };
     };
 
+    const existingUser = findStoredUserByEmail(body.admin.email);
+    if (existingUser) {
+      return HttpResponse.json(
+        { success: false, error: { code: 'EMAIL_TAKEN', message: 'Email address already in use' } },
+        { status: 409 }
+      );
+    }
+
     const libId = `lib-${Date.now()}`;
     const newAdmin = {
       id: `usr-${Date.now()}`,
@@ -134,12 +157,26 @@ export const handlers = [
       id: libId,
       ...body.library,
       status: 'PENDING' as const,
-      seatCounts: { INDIVIDUAL: 20, GROUP: 4, ACCESSIBLE: 2, COMPUTER: 6 },
-      totalSeats: 32,
-      floorCount: 1,
+      seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
+      totalSeats: 0,
+      floorCount: 0,
       createdAt: new Date().toISOString(),
     };
-    mockLibraries.push(newLib);
+    saveStoredLibrary(newLib);
+
+    // Initialize fresh empty floors and slots for the new library
+    saveStoredFloorsForLibrary(libId, {});
+    saveStoredSlotsForLibrary(libId, []);
+
+    // Welcome notification for the newly registered library admin
+    addStoredNotification(newAdmin.id, {
+      id: `notif-${Date.now()}`,
+      title: 'Library Registration Submitted! 🏛️',
+      body: `Your application for "${newLib.name}" is pending platform owner verification. Once approved, you can build your floor layouts and accept bookings.`,
+      type: 'SYSTEM',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
 
     return HttpResponse.json({
       success: true,
@@ -173,7 +210,8 @@ export const handlers = [
     const status = url.searchParams.get('status');
     const q = url.searchParams.get('q');
 
-    let filtered = [...mockLibraries];
+    const libraries = getStoredLibraries();
+    let filtered = [...libraries];
     if (status) filtered = filtered.filter((l) => l.status === status);
     if (q) {
       const qLower = q.toLowerCase();
@@ -190,7 +228,7 @@ export const handlers = [
   }),
 
   http.get(`${BASE}/owner/libraries/:id`, ({ params }) => {
-    const lib = mockLibraries.find((l) => l.id === params.id);
+    const lib = findStoredLibraryById(params.id as string);
     if (!lib) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Library not found' } }, { status: 404 });
     const allUsers = getStoredUsers();
     const admin = allUsers.find((u) => u.libraryId === lib.id) || allUsers[1];
@@ -198,26 +236,52 @@ export const handlers = [
   }),
 
   http.post(`${BASE}/owner/libraries/:id/approve`, ({ params }) => {
-    const lib = mockLibraries.find((l) => l.id === params.id);
+    const lib = updateStoredLibrary(params.id as string, { status: 'APPROVED' });
     if (!lib) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Library not found' } }, { status: 404 });
-    lib.status = 'APPROVED';
+
+    const admin = getStoredUsers().find((u) => u.libraryId === lib.id);
+    if (admin) {
+      addStoredNotification(admin.id, {
+        id: `notif-${Date.now()}`,
+        title: 'Library Listing Approved! 🎉',
+        body: `Congratulations! ${lib.name} has been approved by the platform owner. You can now configure your floor layouts, add time slots, and accept bookings.`,
+        type: 'SYSTEM',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     return HttpResponse.json({ success: true, data: lib });
   }),
 
   http.post(`${BASE}/owner/libraries/:id/reject`, async ({ params, request }) => {
     const { reason } = (await request.json()) as { reason: string };
-    const lib = mockLibraries.find((l) => l.id === params.id);
+    const lib = updateStoredLibrary(params.id as string, { status: 'REJECTED', rejectionReason: reason });
     if (!lib) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Library not found' } }, { status: 404 });
-    lib.status = 'REJECTED';
-    lib.rejectionReason = reason;
+
+    const admin = getStoredUsers().find((u) => u.libraryId === lib.id);
+    if (admin) {
+      addStoredNotification(admin.id, {
+        id: `notif-${Date.now()}`,
+        title: 'Library Application Update',
+        body: `Your library application was not approved. Reason: ${reason}`,
+        type: 'SYSTEM',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     return HttpResponse.json({ success: true, data: lib });
   }),
 
   http.get(`${BASE}/owner/stats`, () => {
-    const totalLibraries = mockLibraries.length;
-    const pending = mockLibraries.filter((l) => l.status === 'PENDING').length;
-    const approved = mockLibraries.filter((l) => l.status === 'APPROVED').length;
-    const rejected = mockLibraries.filter((l) => l.status === 'REJECTED').length;
+    const libraries = getStoredLibraries();
+    const totalLibraries = libraries.length;
+    const pending = libraries.filter((l) => l.status === 'PENDING').length;
+    const approved = libraries.filter((l) => l.status === 'APPROVED').length;
+    const rejected = libraries.filter((l) => l.status === 'REJECTED').length;
+    const allUsers = getStoredUsers();
+    const allBookings = getStoredBookings();
     return HttpResponse.json({
       success: true,
       data: {
@@ -225,49 +289,92 @@ export const handlers = [
         pending,
         approved,
         rejected,
-        totalUsers: 142,
-        totalBookings: 840,
+        totalUsers: allUsers.length,
+        totalBookings: allBookings.length,
       },
     });
   }),
 
   // 4.3 Library Admin
-  http.get(`${BASE}/admin/library`, () => {
-    return HttpResponse.json({ success: true, data: mockLibraries[0] });
+  http.get(`${BASE}/admin/library`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    return HttpResponse.json({ success: true, data: lib });
   }),
 
   http.put(`${BASE}/admin/library`, async ({ request }) => {
-    const data = (await request.json()) as Partial<typeof mockLibraries[0]>;
-    Object.assign(mockLibraries[0], data);
-    return HttpResponse.json({ success: true, data: mockLibraries[0] });
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const data = (await request.json()) as Partial<Library>;
+    const updated = updateStoredLibrary(lib.id, data) || Object.assign(lib, data);
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
   http.post(`${BASE}/admin/library/grid/generate`, async ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const { floors } = (await request.json()) as {
       floors: Array<{ floorNumber: number; label: string; rows: number; cols: number; counts: Record<string, number> }>;
     };
 
-    const result: typeof mockFloorGrids[string][] = [];
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    const result: FloorGrid[] = [];
+    let totalGeneratedSeats = 0;
+    const seatCounts: Record<string, number> = { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 };
+
     floors.forEach((f) => {
-      const flId = `fl-${f.floorNumber}`;
+      const flId = `${lib.id}-fl-${f.floorNumber}`;
       const grid = createDefaultFloorGrid(flId, f.floorNumber, f.label, f.rows, f.cols);
-      mockFloorGrids[flId] = grid;
+      floorsObj[flId] = grid;
       result.push(grid);
+      grid.cells.forEach((cell) => {
+        if (cell.type === 'SEAT' && cell.seat) {
+          totalGeneratedSeats++;
+          if (seatCounts[cell.seat.seatType] !== undefined) {
+            seatCounts[cell.seat.seatType]++;
+          }
+        }
+      });
+    });
+
+    saveStoredFloorsForLibrary(lib.id, floorsObj);
+    updateStoredLibrary(lib.id, {
+      floorCount: Object.keys(floorsObj).length,
+      totalSeats: totalGeneratedSeats,
+      seatCounts: seatCounts as any,
     });
 
     return HttpResponse.json({ success: true, data: result });
   }),
 
   http.post(`${BASE}/admin/floors`, async ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const data = await request.json() as any;
-    const floorId = `fl-temp-${Date.now()}`;
-    const newFloor = createDefaultFloorGrid(floorId, data.floorNumber, data.label, data.rows, data.cols);
-    mockFloorGrids[floorId] = newFloor;
+    const floorId = `${lib.id}-fl-${data.floorNumber || Date.now()}`;
+    const newFloor = createDefaultFloorGrid(floorId, Number(data.floorNumber), data.label, data.rows || 5, data.cols || 6);
+    saveStoredFloorForLibrary(lib.id, newFloor);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    updateStoredLibrary(lib.id, { floorCount: Object.keys(floorsObj).length });
     return HttpResponse.json({ success: true, data: { id: floorId, ...data } });
   }),
 
-  http.get(`${BASE}/admin/floors`, () => {
-    const floors = Object.values(mockFloorGrids).map((g) => ({
+  http.delete(`${BASE}/admin/floors/:floorId`, ({ params, request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    delete floorsObj[params.floorId as string];
+    saveStoredFloorsForLibrary(lib.id, floorsObj);
+    const summary = getStoredAnalyticsForLibrary(lib.id);
+    updateStoredLibrary(lib.id, { floorCount: Object.keys(floorsObj).length, totalSeats: summary.totalSeats });
+    return HttpResponse.json({ success: true, data: { ok: true } });
+  }),
+
+  http.get(`${BASE}/admin/floors`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    const floors = Object.values(floorsObj).map((g) => ({
       id: g.floorId,
       floorNumber: g.floorNumber,
       label: g.label,
@@ -277,29 +384,42 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: floors });
   }),
 
-  http.get(`${BASE}/admin/floors/:floorId/grid`, ({ params }) => {
-    const grid = mockFloorGrids[params.floorId as string];
+  http.get(`${BASE}/admin/floors/:floorId/grid`, ({ params, request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    const grid = floorsObj[params.floorId as string];
     if (!grid) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Floor not found' } }, { status: 404 });
     return HttpResponse.json({ success: true, data: grid });
   }),
 
   http.put(`${BASE}/admin/floors/:floorId/layout`, async ({ params, request }) => {
-    const body = (await request.json()) as { rows: number; cols: number; cells: any[] };
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
     const floorId = params.floorId as string;
-    const existing = mockFloorGrids[floorId];
+    const existing = floorsObj[floorId];
     if (!existing) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Floor not found' } }, { status: 404 });
 
+    const body = (await request.json()) as { rows: number; cols: number; cells: any[] };
     existing.rows = body.rows;
     existing.cols = body.cols;
     existing.cells = body.cells;
+    saveStoredFloorForLibrary(lib.id, existing);
+
+    const summary = getStoredAnalyticsForLibrary(lib.id);
+    updateStoredLibrary(lib.id, { totalSeats: summary.totalSeats });
 
     return HttpResponse.json({ success: true, data: existing });
   }),
 
   http.patch(`${BASE}/admin/seats/:seatId`, async ({ params, request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
     const patch = (await request.json()) as Partial<Seat>;
     let foundSeat: Seat | null = null;
-    Object.values(mockFloorGrids).forEach((grid) => {
+    Object.values(floorsObj).forEach((grid) => {
       const cell = grid.cells.find((c) => c.seat?.id === params.seatId);
       if (cell && cell.seat) {
         Object.assign(cell.seat, patch);
@@ -308,18 +428,24 @@ export const handlers = [
     });
 
     if (!foundSeat) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Seat not found' } }, { status: 404 });
+    saveStoredFloorsForLibrary(lib.id, floorsObj);
     return HttpResponse.json({ success: true, data: foundSeat });
   }),
 
-  http.get(`${BASE}/admin/slots`, () => {
-    return HttpResponse.json({ success: true, data: mockSlots });
+  http.get(`${BASE}/admin/slots`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const slots = getStoredSlotsForLibrary(lib.id);
+    return HttpResponse.json({ success: true, data: slots });
   }),
 
   http.post(`${BASE}/admin/slots`, async ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const body = (await request.json()) as Partial<TimeSlot>;
     const newSlot: TimeSlot = {
       id: `slot-${Date.now()}`,
-      libraryId: 'lib-1',
+      libraryId: lib.id,
       name: body.name || 'MORNING',
       startTime: body.startTime || '08:00',
       endTime: body.endTime || '12:00',
@@ -327,31 +453,35 @@ export const handlers = [
       pricePaise: body.pricePaise || 0,
       isActive: true,
     };
-    mockSlots.push(newSlot);
+    addStoredSlotForLibrary(lib.id, newSlot);
     return HttpResponse.json({ success: true, data: newSlot });
   }),
 
   http.put(`${BASE}/admin/slots/:slotId`, async ({ params, request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const body = (await request.json()) as Partial<TimeSlot>;
-    const slot = mockSlots.find((s) => s.id === params.slotId);
-    if (!slot) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Slot not found' } }, { status: 404 });
-    Object.assign(slot, body);
-    return HttpResponse.json({ success: true, data: slot });
+    const updated = updateStoredSlotForLibrary(lib.id, params.slotId as string, body);
+    if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Slot not found' } }, { status: 404 });
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
-  http.delete(`${BASE}/admin/slots/:slotId`, ({ params }) => {
-    const idx = mockSlots.findIndex((s) => s.id === params.slotId);
-    if (idx !== -1) mockSlots.splice(idx, 1);
+  http.delete(`${BASE}/admin/slots/:slotId`, ({ params, request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    deleteStoredSlotForLibrary(lib.id, params.slotId as string);
     return HttpResponse.json({ success: true, data: { ok: true } });
   }),
 
   http.get(`${BASE}/admin/bookings`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const url = new URL(request.url);
     const date = url.searchParams.get('date');
     const slotId = url.searchParams.get('slotId');
     const status = url.searchParams.get('status');
 
-    let result = getStoredBookings();
+    let result = getStoredBookingsForLibrary(lib.id);
     if (date) result = result.filter((b) => b.date === date);
     if (slotId) result = result.filter((b) => b.slot.id === slotId);
     if (status) result = result.filter((b) => b.status === status);
@@ -365,8 +495,11 @@ export const handlers = [
 
   http.post(`${BASE}/admin/checkin/scan`, async ({ request }) => {
     const { qrToken } = (await request.json()) as { qrToken: string };
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const libBookings = getStoredBookingsForLibrary(lib.id);
     const allBookings = getStoredBookings();
-    const booking = allBookings.find((b) => qrToken.includes(b.id) || qrToken.includes(b.code)) || allBookings[0];
+    const booking = libBookings.find((b) => qrToken.includes(b.id) || qrToken.includes(b.code)) || allBookings.find((b) => qrToken.includes(b.id) || qrToken.includes(b.code));
     if (!booking) {
       return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
     }
@@ -390,12 +523,16 @@ export const handlers = [
   }),
 
   http.post(`${BASE}/admin/bookings/walk-in`, async ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
     const body = (await request.json()) as { seatId: string; slotId: string; date: string; guestName?: string };
-    const slot = mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
+    const libSlots = getStoredSlotsForLibrary(lib.id);
+    const slot = libSlots.find((s) => s.id === body.slotId) || libSlots[0] || mockSlots[0];
     let seat: Seat | null = null;
     let floorLabel = 'Floor 1';
 
-    Object.values(mockFloorGrids).forEach((grid) => {
+    const floorsObj = getStoredFloorsForLibrary(lib.id);
+    Object.values(floorsObj).forEach((grid) => {
       const cell = grid.cells.find((c) => c.seat?.id === body.seatId);
       if (cell && cell.seat) {
         seat = cell.seat;
@@ -410,8 +547,8 @@ export const handlers = [
     const newBooking: Booking = {
       id: `bk-${Date.now()}`,
       code: `VA-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
-      libraryId: 'lib-1',
-      libraryName: 'Central Study Hub',
+      libraryId: lib.id,
+      libraryName: lib.name,
       seat,
       floorLabel,
       slot,
@@ -437,39 +574,34 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: updated });
   }),
 
-  http.get(`${BASE}/admin/analytics/summary`, () => {
-    const totalSeats = 32;
-    const allBookings = getStoredBookings();
-    const bookedSeats = allBookings.filter((b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN').length;
-    const availableSeats = Math.max(0, totalSeats - bookedSeats);
-    const bookedPercent = Math.min(100, Math.round((bookedSeats / totalSeats) * 100));
-    const notBookedPercent = 100 - bookedPercent;
-
+  http.get(`${BASE}/admin/analytics/summary`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const summary = getStoredAnalyticsForLibrary(lib.id);
     return HttpResponse.json({
       success: true,
-      data: {
-        totalSeats,
-        bookedSeats,
-        availableSeats,
-        bookedPercent,
-        notBookedPercent,
-        checkedIn: allBookings.filter((b) => b.status === 'CHECKED_IN').length,
-        noShows: 1,
-        walkIns: allBookings.filter((b) => b.source === 'WALK_IN').length,
-        revenuePaise: 45000,
-      },
+      data: summary,
     });
   }),
 
-  http.get(`${BASE}/admin/analytics/timeseries`, () => {
+  http.get(`${BASE}/admin/analytics/timeseries`, ({ request }) => {
+    const user = resolveCurrentUser(request);
+    const lib = getLibraryForAdmin(user);
+    const summary = getStoredAnalyticsForLibrary(lib.id);
+    const cap = summary.totalSeats;
     return HttpResponse.json({
       success: true,
       data: {
-        points: [
-          { label: '06:00 - 12:00 (Morning)', booked: 22, capacity: 32, percent: 68 },
-          { label: '12:00 - 17:00 (Afternoon)', booked: 28, capacity: 32, percent: 87 },
-          { label: '17:00 - 21:00 (Evening)', booked: 26, capacity: 32, percent: 81 },
-          { label: '21:00 - 23:59 (Night)', booked: 14, capacity: 32, percent: 43 },
+        points: cap > 0 ? [
+          { label: '06:00 - 12:00 (Morning)', booked: Math.round(cap * 0.4), capacity: cap, percent: 40 },
+          { label: '12:00 - 17:00 (Afternoon)', booked: Math.round(cap * 0.6), capacity: cap, percent: 60 },
+          { label: '17:00 - 21:00 (Evening)', booked: Math.round(cap * 0.5), capacity: cap, percent: 50 },
+          { label: '21:00 - 23:59 (Night)', booked: Math.round(cap * 0.2), capacity: cap, percent: 20 },
+        ] : [
+          { label: '06:00 - 12:00 (Morning)', booked: 0, capacity: 0, percent: 0 },
+          { label: '12:00 - 17:00 (Afternoon)', booked: 0, capacity: 0, percent: 0 },
+          { label: '17:00 - 21:00 (Evening)', booked: 0, capacity: 0, percent: 0 },
+          { label: '21:00 - 23:59 (Night)', booked: 0, capacity: 0, percent: 0 },
         ],
       },
     });
@@ -492,7 +624,8 @@ export const handlers = [
     const isFree = url.searchParams.get('isFree');
     const seatType = url.searchParams.get('seatType');
 
-    let approved = mockLibraries.filter((l) => l.status === 'APPROVED');
+    const libraries = getStoredLibraries();
+    let approved = libraries.filter((l) => l.status === 'APPROVED');
     if (q) {
       approved = approved.filter(
         (l) => l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase())
@@ -502,7 +635,7 @@ export const handlers = [
       approved = approved.filter((l) => l.isFree);
     }
     if (seatType) {
-      approved = approved.filter((l) => (l.seatCounts as any)[seatType] > 0);
+      approved = approved.filter((l) => ((l.seatCounts as any) || {})[seatType] > 0);
     }
 
     return HttpResponse.json({
@@ -513,24 +646,27 @@ export const handlers = [
   }),
 
   http.get(`${BASE}/recommendations/libraries`, () => {
-    const scored = mockLibraries
+    const libraries = getStoredLibraries();
+    const scored = libraries
       .filter((l) => l.status === 'APPROVED')
       .map((l) => ({ ...l, matchScore: l.id === 'lib-1' ? 96 : 88 }));
     return HttpResponse.json({ success: true, data: scored });
   }),
 
   http.get(`${BASE}/libraries/:id`, ({ params }) => {
-    const lib = mockLibraries.find((l) => l.id === params.id);
+    const lib = findStoredLibraryById(params.id as string);
     if (!lib) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Library not found' } }, { status: 404 });
     return HttpResponse.json({ success: true, data: lib });
   }),
 
-  http.get(`${BASE}/libraries/:id/slots`, () => {
-    return HttpResponse.json({ success: true, data: mockSlots });
+  http.get(`${BASE}/libraries/:id/slots`, ({ params }) => {
+    const slots = getStoredSlotsForLibrary(params.id as string);
+    return HttpResponse.json({ success: true, data: slots });
   }),
 
-  http.get(`${BASE}/libraries/:id/floors`, () => {
-    const floors = Object.values(mockFloorGrids).map((g) => ({
+  http.get(`${BASE}/libraries/:id/floors`, ({ params }) => {
+    const floorsObj = getStoredFloorsForLibrary(params.id as string);
+    const floors = Object.values(floorsObj).map((g) => ({
       id: g.floorId,
       floorNumber: g.floorNumber,
       label: g.label,
@@ -541,7 +677,8 @@ export const handlers = [
   }),
 
   http.get(`${BASE}/libraries/:id/floors/:floorId/grid`, ({ params, request }) => {
-    const grid = mockFloorGrids[params.floorId as string];
+    const floorsObj = getStoredFloorsForLibrary(params.id as string);
+    const grid = floorsObj[params.floorId as string];
     if (!grid) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Floor not found' } }, { status: 404 });
 
     const url = new URL(request.url);
@@ -716,11 +853,14 @@ export const handlers = [
       );
     }
 
-    const slot = mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
+    const lib = findStoredLibraryById(body.libraryId);
+    const libSlots = getStoredSlotsForLibrary(body.libraryId);
+    const slot = libSlots.find((s) => s.id === body.slotId) || mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
     let seat: Seat | null = null;
     let floorLabel = 'Floor 1 - Main Hall';
 
-    Object.values(mockFloorGrids).forEach((grid) => {
+    const floorsObj = getStoredFloorsForLibrary(body.libraryId);
+    Object.values(floorsObj).forEach((grid) => {
       const cell = grid.cells.find((c) => c.seat?.id === body.seatId);
       if (cell && cell.seat) {
         seat = cell.seat;
@@ -730,7 +870,7 @@ export const handlers = [
 
     if (!seat) {
       // Safe fallback if seatId is from custom floor or backend format
-      const allMockSeats = Object.values(mockFloorGrids)
+      const allMockSeats = Object.values(floorsObj)
         .flatMap((g) => g.cells)
         .filter((c) => c.type === 'SEAT' && c.seat)
         .map((c) => c.seat!);
@@ -755,7 +895,7 @@ export const handlers = [
       id: `bk-${Date.now()}`,
       code: `VA-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
       libraryId: body.libraryId,
-      libraryName: 'Central Study Hub',
+      libraryName: lib?.name || 'Central Study Hub',
       seat: chosenSeat,
       floorLabel,
       slot,

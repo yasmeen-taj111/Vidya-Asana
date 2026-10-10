@@ -155,50 +155,76 @@ export const Slots: React.FC = () => {
       </div>
 
       {/* Slots List Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {slots.map((s) => (
-          <div
-            key={s.id}
-            className="bg-white p-5 rounded-3xl border border-slate-100 shadow-md flex flex-col justify-between space-y-4"
-          >
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                  {s.name}
-                </span>
-                <span
-                  className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
-                    s.isFree ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
-                  }`}
-                >
-                  {s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
-                </span>
-              </div>
-
-              <div className="text-lg font-black text-navy font-mono">
-                {s.startTime} – {s.endTime}
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
-              <button
-                onClick={() => openEdit(s)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-slate-50 transition-colors"
-                title="Edit"
-              >
-                <Edit3 className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => handleDelete(s.id)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
-                title="Delete"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
+      {slots.length === 0 ? (
+        <div className="bg-white p-12 rounded-3xl border border-slate-100 shadow-md text-center space-y-4">
+          <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto">
+            <Clock className="w-8 h-8" />
           </div>
-        ))}
-      </div>
+          <h3 className="text-xl font-bold text-slate-900">No Time Slots Created Yet</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            Configure admission windows (e.g. Morning, Afternoon, Evening) and reservation rates for your library members.
+          </p>
+          <button
+            onClick={() => {
+              setEditingSlot(null);
+              setSlotName('MORNING');
+              setStartTime('06:00');
+              setEndTime('12:00');
+              setIsFree(false);
+              setPriceRupees(50);
+              setShowAddModal(true);
+            }}
+            className="px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/25 transition-all inline-flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Add Your First Time Slot
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {slots.map((s) => (
+            <div
+              key={s.id}
+              className="bg-white p-5 rounded-3xl border border-slate-100 shadow-md flex flex-col justify-between space-y-4"
+            >
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                    {s.name}
+                  </span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                      s.isFree ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                    }`}
+                  >
+                    {s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
+                  </span>
+                </div>
+
+                <div className="text-lg font-black text-navy font-mono">
+                  {s.startTime} – {s.endTime}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                <button
+                  onClick={() => openEdit(s)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-primary hover:bg-slate-50 transition-colors"
+                  title="Edit"
+                >
+                  <Edit3 className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => handleDelete(s.id)}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal: Add / Edit Slot */}
       {showAddModal && (

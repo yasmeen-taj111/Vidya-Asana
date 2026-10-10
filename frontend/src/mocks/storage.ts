@@ -7,6 +7,9 @@ import {
   StudyReport,
   LeaderboardEntry,
   Seat,
+  Library,
+  TimeSlot,
+  FloorGrid,
 } from '../api/types';
 import {
   mockUsers as initialMockUsers,
@@ -14,6 +17,8 @@ import {
   mockNotifications as initialMockNotifications,
   mockUserPreferences as defaultPreferences,
   mockFloorGrids,
+  mockLibraries as initialMockLibraries,
+  mockSlots as initialMockSlots,
 } from './db';
 
 export interface StoredNotification extends Notification {
@@ -523,4 +528,164 @@ export function getStoredLeaderboard(currentUserId: string): LeaderboardEntry[] 
   });
 
   return entries;
+}
+
+// -------------------------------------------------------------
+// 10. Libraries Store (Persistent & Per-Library Isolated)
+// -------------------------------------------------------------
+export function getStoredLibraries(): Library[] {
+  return loadJson<Library[]>('va_mock_libraries', initialMockLibraries);
+}
+
+export function saveStoredLibrary(library: Library): void {
+  const libraries = getStoredLibraries();
+  const index = libraries.findIndex((l) => l.id === library.id);
+  if (index >= 0) {
+    libraries[index] = library;
+  } else {
+    libraries.push(library);
+  }
+  saveJson('va_mock_libraries', libraries);
+}
+
+export function updateStoredLibrary(id: string, partial: Partial<Library>): Library | undefined {
+  const libraries = getStoredLibraries();
+  const lib = libraries.find((l) => l.id === id);
+  if (lib) {
+    Object.assign(lib, partial);
+    saveJson('va_mock_libraries', libraries);
+    return lib;
+  }
+  return undefined;
+}
+
+export function findStoredLibraryById(id: string): Library | undefined {
+  return getStoredLibraries().find((l) => l.id === id);
+}
+
+export function getLibraryForAdmin(user?: User | null): Library {
+  const libraries = getStoredLibraries();
+  if (user?.libraryId) {
+    const matched = libraries.find((l) => l.id === user.libraryId);
+    if (matched) return matched;
+  }
+  if (user?.email?.toLowerCase().includes('pending') || user?.id === 'usr-3') {
+    const pendingLib = libraries.find((l) => l.status === 'PENDING');
+    if (pendingLib) return pendingLib;
+    return libraries[1] || libraries[0];
+  }
+  return libraries[0];
+}
+
+// -------------------------------------------------------------
+// 11. Floors Store (Per-Library Isolated)
+// -------------------------------------------------------------
+export function getStoredFloorsForLibrary(libraryId: string): Record<string, FloorGrid> {
+  if (libraryId === 'lib-1') {
+    return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, mockFloorGrids);
+  }
+  return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, {});
+}
+
+export function saveStoredFloorsForLibrary(libraryId: string, floors: Record<string, FloorGrid>): void {
+  saveJson(`va_mock_floors_${libraryId}`, floors);
+}
+
+export function saveStoredFloorForLibrary(libraryId: string, floorGrid: FloorGrid): void {
+  const floors = getStoredFloorsForLibrary(libraryId);
+  floors[floorGrid.floorId] = floorGrid;
+  saveStoredFloorsForLibrary(libraryId, floors);
+}
+
+// -------------------------------------------------------------
+// 12. Time Slots Store (Per-Library Isolated)
+// -------------------------------------------------------------
+export function getStoredSlotsForLibrary(libraryId: string): TimeSlot[] {
+  if (libraryId === 'lib-1') {
+    return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, initialMockSlots);
+  }
+  return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, []);
+}
+
+export function saveStoredSlotsForLibrary(libraryId: string, slots: TimeSlot[]): void {
+  saveJson(`va_mock_slots_${libraryId}`, slots);
+}
+
+export function addStoredSlotForLibrary(libraryId: string, slot: TimeSlot): TimeSlot {
+  const slots = getStoredSlotsForLibrary(libraryId);
+  slots.push(slot);
+  saveStoredSlotsForLibrary(libraryId, slots);
+  return slot;
+}
+
+export function updateStoredSlotForLibrary(
+  libraryId: string,
+  slotId: string,
+  partial: Partial<TimeSlot>
+): TimeSlot | undefined {
+  const slots = getStoredSlotsForLibrary(libraryId);
+  const slot = slots.find((s) => s.id === slotId);
+  if (slot) {
+    Object.assign(slot, partial);
+    saveStoredSlotsForLibrary(libraryId, slots);
+    return slot;
+  }
+  return undefined;
+}
+
+export function deleteStoredSlotForLibrary(libraryId: string, slotId: string): boolean {
+  const slots = getStoredSlotsForLibrary(libraryId);
+  const idx = slots.findIndex((s) => s.id === slotId);
+  if (idx !== -1) {
+    slots.splice(idx, 1);
+    saveStoredSlotsForLibrary(libraryId, slots);
+    return true;
+  }
+  return false;
+}
+
+// -------------------------------------------------------------
+// 13. Bookings and Analytics for Library
+// -------------------------------------------------------------
+export function getStoredBookingsForLibrary(libraryId: string): Booking[] {
+  return getStoredBookings().filter((b) => b.libraryId === libraryId);
+}
+
+export function getStoredAnalyticsForLibrary(libraryId: string) {
+  const floors = getStoredFloorsForLibrary(libraryId);
+  let totalSeats = 0;
+  Object.values(floors).forEach((grid) => {
+    grid.cells.forEach((cell) => {
+      if (cell.type === 'SEAT' && cell.seat && cell.seat.isActive !== false) {
+        totalSeats++;
+      }
+    });
+  });
+
+  const libBookings = getStoredBookingsForLibrary(libraryId);
+  const bookedSeats = libBookings.filter(
+    (b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN'
+  ).length;
+  const availableSeats = Math.max(0, totalSeats - bookedSeats);
+  const bookedPercent = totalSeats > 0 ? Math.min(100, Math.round((bookedSeats / totalSeats) * 100)) : 0;
+  const notBookedPercent = 100 - bookedPercent;
+  const checkedIn = libBookings.filter((b) => b.status === 'CHECKED_IN').length;
+  const noShows = libBookings.filter((b) => b.status === 'NO_SHOW').length;
+  const walkIns = libBookings.filter((b) => b.source === 'WALK_IN').length;
+
+  const revenuePaise = libBookings
+    .filter((b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN' || b.status === 'COMPLETED')
+    .reduce((sum, b) => sum + (b.pricePaise || 0), 0);
+
+  return {
+    totalSeats,
+    bookedSeats,
+    availableSeats,
+    bookedPercent,
+    notBookedPercent,
+    checkedIn,
+    noShows,
+    walkIns,
+    revenuePaise,
+  };
 }

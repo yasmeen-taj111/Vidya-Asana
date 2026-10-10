@@ -413,11 +413,29 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
       </div>
 
       {/* Editor Main Canvas & Sidebar */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Visual Grid Canvas */}
-        <div className="lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
-          {/* Palette Tools Toolbar */}
-          <div className="flex flex-wrap items-center gap-2 pb-4 mb-4 border-b border-slate-100">
+      {grids.length === 0 ? (
+        <div className="bg-white p-12 rounded-3xl border border-slate-100 shadow-xl text-center space-y-4">
+          <div className="w-16 h-16 bg-primary/10 text-primary rounded-2xl flex items-center justify-center mx-auto">
+            <Armchair className="w-8 h-8" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900">No Floor Layouts Created Yet</h3>
+          <p className="text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
+            Your library does not have any floor grids configured yet. Use the auto-layout generator to quickly create your study halls, seats, and aisles.
+          </p>
+          <button
+            onClick={() => setShowGenerator(true)}
+            className="px-6 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/25 transition-all inline-flex items-center gap-2"
+          >
+            <Sliders className="w-4 h-4" />
+            Generate Floor Grid Layout
+          </button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Visual Grid Canvas */}
+          <div className="lg:col-span-3 bg-white p-6 rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+            {/* Palette Tools Toolbar */}
+            <div className="flex flex-wrap items-center gap-2 pb-4 mb-4 border-b border-slate-100">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider mr-2">
               Palette:
             </span>
@@ -675,6 +693,7 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
           )}
         </div>
       </div>
+      )}
 
       {/* Auto-Generator Modal */}
       {showGenerator && (

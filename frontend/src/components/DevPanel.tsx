@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
 import { mockSocketInstance } from '../realtime/socket';
-import { getStoredUsers, clearMemoryStore } from '../mocks/storage';
+import { getStoredUsers, clearMemoryStore, findStoredLibraryById } from '../mocks/storage';
 import { mockUsers as initialMockUsers } from '../mocks/db';
 import { Wrench, ChevronUp, ChevronDown, BellRing, UserCheck, RotateCcw } from 'lucide-react';
 
@@ -62,6 +62,7 @@ export const DevPanel: React.FC = () => {
         type: 'info',
         title: 'Switched Role',
         message: `Active user changed to ${target.name} (${target.role})`,
+      });
       const dest =
         target.role === 'SITE_OWNER'
           ? '/owner'
@@ -79,8 +80,22 @@ export const DevPanel: React.FC = () => {
     localStorage.removeItem('va_mock_notifications');
     localStorage.removeItem('va_mock_waitlist');
     localStorage.removeItem('va_mock_preferences');
+    localStorage.removeItem('va_mock_libraries');
     localStorage.removeItem('va_user');
     localStorage.removeItem('va_token');
+
+    // Remove any per-library floor or slot keys
+    try {
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && (key.startsWith('va_mock_floors_') || key.startsWith('va_mock_slots_'))) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => localStorage.removeItem(k));
+    } catch {}
+
     clearMemoryStore();
 
     // Auto-select demo student on clean reset so app is immediately usable
@@ -195,18 +210,25 @@ export const DevPanel: React.FC = () => {
                 <div className="mt-2 pt-2 border-t border-slate-800">
                   <div className="text-slate-400 text-[10px] mb-1 font-mono">Custom Registered Accounts:</div>
                   <div className="space-y-1">
-                    {customUsers.map((cu) => (
-                      <button
-                        key={cu.id}
-                        onClick={() => handleSwitchAccount(cu.email)}
-                        className={`w-full p-1.5 text-left rounded text-[11px] truncate flex items-center justify-between ${
-                          user?.email === cu.email ? 'bg-primary/20 text-accent font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-                        }`}
-                      >
-                        <span className="truncate">{cu.name}</span>
-                        <span className="text-[10px] text-slate-400 ml-1">({cu.role})</span>
-                      </button>
-                    ))}
+                    {customUsers.map((cu) => {
+                      const lib = cu.libraryId ? findStoredLibraryById(cu.libraryId) : undefined;
+                      const roleLabel =
+                        cu.role === 'LIBRARY_ADMIN'
+                          ? `Admin · ${lib?.status || 'PENDING'}`
+                          : 'Student';
+                      return (
+                        <button
+                          key={cu.id}
+                          onClick={() => handleSwitchAccount(cu.email)}
+                          className={`w-full p-1.5 text-left rounded text-[11px] truncate flex items-center justify-between ${
+                            user?.email === cu.email ? 'bg-primary/20 text-accent font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                          }`}
+                        >
+                          <span className="truncate">{cu.name}</span>
+                          <span className="text-[10px] text-slate-400 ml-1">({roleLabel})</span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
