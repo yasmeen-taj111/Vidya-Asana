@@ -1,6 +1,9 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
+import { bookingsApi } from '../api/bookings';
+import { getSocket, mockSocketInstance } from '../realtime/socket';
 import {
   Compass,
   CalendarCheck,
@@ -23,6 +26,83 @@ export const UserLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
   const location = useLocation();
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!user) return;
+    const socket = getSocket();
+
+    const checkActiveSlots = async () => {
+      try {
+        const response = await bookingsApi.getMyBookings({ upcoming: true });
+        const list = Array.isArray(response) ? response : (response as any).data || [];
+        const now = new Date();
+        const year = now.getFullYear();
+        const month = String(now.getMonth() + 1).padStart(2, '0');
+        const day = String(now.getDate()).padStart(2, '0');
+        const todayStr = `${year}-${month}-${day}`;
+        const curH = String(now.getHours()).padStart(2, '0');
+        const curM = String(now.getMinutes()).padStart(2, '0');
+        const curTimeStr = `${curH}:${curM}`;
+
+        for (const b of list) {
+          if (b.status === 'CONFIRMED' && b.date === todayStr) {
+            if (b.slot && b.slot.startTime <= curTimeStr && b.slot.endTime > curTimeStr) {
+              const graceMs = new Date(b.graceUntil).getTime();
+              if (Date.now() >= graceMs && !b.checkedInAt) {
+                const useMocks = import.meta.env.VITE_USE_MOCKS === 'true';
+                if (useMocks) {
+                  mockSocketInstance.simulateBookingReleased(
+                    b.id,
+                    'NO_SHOW',
+                    `Your reservation for seat ${b.seat.label} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`
+                  );
+                }
+              } else if (!b.arrivalConfirmed && !useUiStore.getState().activeReminder) {
+                useUiStore.getState().setReminder({
+                  bookingId: b.id,
+                  message: `Your study slot at ${b.libraryName} (${b.seat.label}) has started. Are you coming or not for the slot?`,
+                  graceUntil: b.graceUntil,
+                });
+                break;
+              }
+            }
+          }
+        }
+      } catch {
+        // Ignore background polling errors
+      }
+    };
+
+    checkActiveSlots();
+    const interval = setInterval(checkActiveSlots, 15000);
+
+    const handleReleased = (data: { bookingId: string; reason: string; message?: string }) => {
+      const curReminder = useUiStore.getState().activeReminder;
+      if (curReminder?.bookingId === data.bookingId) {
+        useUiStore.getState().setReminder(null);
+      }
+      useUiStore.getState().addToast({
+        type: 'error',
+        title: 'Slot Cancelled',
+        message:
+          data.message ||
+          'Your seat reservation was cancelled automatically because the 15-minute buffer expired.',
+      });
+    };
+
+    const handleReminder = (data: { bookingId: string; message: string; graceUntil: string }) => {
+      useUiStore.getState().setReminder(data);
+    };
+
+    socket.on('booking:released', handleReleased as (...args: unknown[]) => void);
+    socket.on('booking:reminder', handleReminder as (...args: unknown[]) => void);
+
+    return () => {
+      clearInterval(interval);
+      socket.off('booking:released', handleReleased as (...args: unknown[]) => void);
+      socket.off('booking:reminder', handleReminder as (...args: unknown[]) => void);
+    };
+  }, [user]);
 
   const handleLogout = () => {
     logout();

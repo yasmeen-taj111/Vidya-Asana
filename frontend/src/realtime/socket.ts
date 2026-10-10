@@ -64,16 +64,35 @@ class MockSocket {
   }
 
   simulateReminder(bookingId: string) {
-    const graceUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+    const graceUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const message = 'Your slot has started! Are you coming or not for the slot?';
     this.simulateEvent('booking:reminder', {
       bookingId,
-      message: 'Your slot has started! Are you coming to your seat?',
+      message,
       graceUntil,
     });
     useUiStore.getState().setReminder({
       bookingId,
-      message: 'Your slot has started! Are you coming to your seat?',
+      message,
       graceUntil,
+    });
+  }
+
+  simulateBookingReleased(bookingId: string, reason = 'NO_SHOW', message?: string) {
+    const defaultMsg =
+      reason === 'NO_SHOW'
+        ? 'Your seat reservation has been automatically cancelled because the 15-minute buffer expired.'
+        : 'Your seat reservation has been cancelled and released.';
+    const text = message || defaultMsg;
+    this.simulateEvent('booking:released', { bookingId, reason, message: text });
+    const curReminder = useUiStore.getState().activeReminder;
+    if (curReminder?.bookingId === bookingId) {
+      useUiStore.getState().setReminder(null);
+    }
+    useUiStore.getState().addToast({
+      type: 'error',
+      title: 'Slot Cancelled',
+      message: text,
     });
   }
 
@@ -105,6 +124,20 @@ export function getSocket(): Socket | MockSocket {
 
     realSocket.on('booking:reminder', (data: { bookingId: string; message: string; graceUntil: string }) => {
       useUiStore.getState().setReminder(data);
+    });
+
+    realSocket.on('booking:released', (data: { bookingId: string; reason: string; message?: string }) => {
+      const curReminder = useUiStore.getState().activeReminder;
+      if (curReminder?.bookingId === data.bookingId) {
+        useUiStore.getState().setReminder(null);
+      }
+      useUiStore.getState().addToast({
+        type: 'error',
+        title: 'Slot Cancelled',
+        message:
+          data.message ||
+          'Your seat reservation has been automatically cancelled because the 15-minute buffer expired.',
+      });
     });
 
     useAuthStore.subscribe((state) => {

@@ -972,7 +972,11 @@ export const handlers = [
       userId: currentUser.id,
       pricePaise: slot.pricePaise,
       paymentStatus: slot.isFree ? 'FREE' : 'PAID',
-      graceUntil: `${body.date}T${slot.startTime}:00.000Z`,
+      graceUntil: (() => {
+        const [startH, startM] = slot.startTime.split(':').map(Number);
+        const slotStartMs = new Date(`${body.date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
+        return new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+      })(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),
     };
@@ -1148,20 +1152,47 @@ export const handlers = [
         );
       }
 
+      addStoredNotification(bk.userId || 'usr-4', {
+        id: `ntf-${Date.now()}`,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking Cancelled & Seat Released',
+        body: `Your booking for seat ${bk.seat.label} at ${bk.libraryName} was cancelled as requested and the seat has been released.`,
+        isRead: false,
+        data: { bookingId: bk.id },
+        createdAt: new Date().toISOString(),
+      });
+      mockSocketInstance.simulateBookingReleased(
+        bk.id,
+        'CANCELLED',
+        'Your booking was cancelled as you indicated you are not coming.'
+      );
+      mockSocketInstance.simulateSeatUpdate(bk.libraryId, bk.seat.id, 'AVAILABLE', bk.date, bk.slot.id);
+
       return HttpResponse.json({ success: true, data: updated });
     }
 
     if (bk.arrivalConfirmed) {
       return HttpResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Grace extension already utilized once.' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Arrival buffer already utilized once.' } },
         { status: 409 }
       );
     }
 
     const updated = updateStoredBooking(params.id as string, {
       arrivalConfirmed: true,
-      graceUntil: new Date(new Date(bk.graceUntil).getTime() + 30 * 60 * 1000).toISOString(),
+      graceUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     });
+
+    addStoredNotification(bk.userId || 'usr-4', {
+      id: `ntf-${Date.now()}`,
+      type: 'GRACE_EXTENDED',
+      title: '15-Minute Buffer Granted',
+      body: `You have 15 minutes to arrive and check in for seat ${bk.seat.label} at ${bk.libraryName}. If not checked in within 15 minutes, your slot will be cancelled automatically.`,
+      isRead: false,
+      data: { bookingId: bk.id },
+      createdAt: new Date().toISOString(),
+    });
+
     return HttpResponse.json({ success: true, data: updated });
   }),
 
@@ -1309,7 +1340,11 @@ export const handlers = [
       userId,
       pricePaise: item.slot.pricePaise,
       paymentStatus: item.slot.isFree ? 'FREE' : 'PAID',
-      graceUntil: `${item.date}T${item.slot.startTime}:00.000Z`,
+      graceUntil: (() => {
+        const [startH, startM] = item.slot.startTime.split(':').map(Number);
+        const slotStartMs = new Date(`${item.date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
+        return new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+      })(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),
     };

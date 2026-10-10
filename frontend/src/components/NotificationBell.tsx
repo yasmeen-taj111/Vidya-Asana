@@ -63,6 +63,10 @@ export const NotificationBell: React.FC = () => {
     switch (type) {
       case 'BOOKING_CONFIRMED':
         return <BookOpen className="w-4 h-4 text-emerald-600" />;
+      case 'BOOKING_CANCELLED':
+        return <AlertCircle className="w-4 h-4 text-rose-600" />;
+      case 'GRACE_EXTENDED':
+        return <Clock className="w-4 h-4 text-primary" />;
       case 'REMINDER':
         return <Clock className="w-4 h-4 text-amber-600" />;
       case 'NO_SHOW':

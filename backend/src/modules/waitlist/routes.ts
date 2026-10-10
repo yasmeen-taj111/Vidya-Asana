@@ -236,12 +236,12 @@ waitlistRouter.post('/:id/claim', authenticate, bookingRateLimiter, async (req, 
         throw new AppError('SEAT_UNAVAILABLE', 'This seat is already booked for this slot.', 409);
       }
 
-      // Calculate grace period
+      // Calculate grace period: 15 minutes buffer wait time
       const [startHour, startMin] = w.start_time.split(':').map(Number);
       const graceDate = new Date(`${dateStr}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
-      graceDate.setMinutes(graceDate.getMinutes() + 30);
+      graceDate.setMinutes(graceDate.getMinutes() + 15);
       const now = new Date();
-      const finalGrace = graceDate > now ? graceDate : new Date(now.getTime() + 30 * 60 * 1000);
+      const finalGrace = graceDate > now ? graceDate : new Date(now.getTime() + 15 * 60 * 1000);
 
       const bookingId = generateUUID();
       const code = generateBookingCode();

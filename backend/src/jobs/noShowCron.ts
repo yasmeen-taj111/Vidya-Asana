@@ -51,7 +51,7 @@ async function processSlotStartReminders() {
     await query(`UPDATE bookings SET reminder_sent_at = UTC_TIMESTAMP() WHERE id = ?`, [b.id]);
 
     const graceUntilIso = new Date(b.grace_until).toISOString();
-    const message = `Your study slot at ${b.library_name} (Seat ${b.seat_label}) has started. Please scan your check-in QR or confirm your arrival.`;
+    const message = `Your study slot at ${b.library_name} (Seat ${b.seat_label}) has started. Are you coming or not for the slot?`;
 
     emitBookingReminder(b.user_id, {
       bookingId: b.id,
@@ -62,16 +62,16 @@ async function processSlotStartReminders() {
     await createNotification({
       userId: b.user_id,
       type: 'REMINDER',
-      title: 'Slot Started — Check-in Required',
-      body: message,
-      data: { bookingId: b.id, graceUntil: graceUntilIso },
+      title: 'Are you coming or not for the slot?',
+      body: `Your slot at ${b.library_name} (Seat ${b.seat_label}) has started. Please confirm if you are coming to receive a 15-minute buffer wait time.`,
+      data: { bookingId: b.id, graceUntil: graceUntilIso, promptArrival: true },
     });
 
     if (b.user_email) {
       sendMail({
         to: b.user_email,
-        subject: `[Vidya Asana] Check-in Reminder for Seat ${b.seat_label}`,
-        text: `Hi ${b.user_name},\n\nYour study session at ${b.library_name} has started. Please check in with your QR pass before ${graceUntilIso}.\n\nIf you are on your way, open Vidya Asana to extend your grace window by 30 minutes!`,
+        subject: `[Vidya Asana] Are you coming? Slot started for Seat ${b.seat_label}`,
+        text: `Hi ${b.user_name},\n\nYour study session at ${b.library_name} has started. Are you coming or not for the slot?\n\nIf you are on your way, confirm your arrival in Vidya Asana to get a 15-minute buffer wait time. If you do not arrive within 15 minutes, your slot will be automatically cancelled.`,
       }).catch((e) => console.error('[Mailer] Reminder email error:', e));
     }
   }
@@ -92,32 +92,34 @@ async function processNoShows() {
   for (const b of expiredBookings) {
     await query(`UPDATE bookings SET status = 'NO_SHOW' WHERE id = ?`, [b.id]);
 
+    const dateStr =
+      typeof b.booking_date === 'string'
+        ? b.booking_date.substring(0, 10)
+        : new Date(b.booking_date).toISOString().substring(0, 10);
+
     emitBookingReleased(b.user_id, {
       bookingId: b.id,
       reason: 'NO_SHOW',
+      message: `Your reservation for Seat ${b.seat_label} at ${b.library_name} was automatically cancelled because the 15-minute buffer wait time expired.`,
     });
     emitBookingUpdated(b.library_id, { ...b, status: 'NO_SHOW' });
+    emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
 
     await createNotification({
       userId: b.user_id,
       type: 'NO_SHOW',
-      title: 'Booking Cancelled (No-Show)',
-      body: `Your booking for Seat ${b.seat_label} at ${b.library_name} was released because the check-in grace period expired.`,
+      title: 'Slot Cancelled (15-Min Buffer Expired)',
+      body: `Your reservation for Seat ${b.seat_label} at ${b.library_name} was automatically cancelled because you did not arrive within the 15-minute buffer wait time.`,
       data: { bookingId: b.id },
     });
 
     if (b.user_email) {
       sendMail({
         to: b.user_email,
-        subject: `[Vidya Asana] Booking Released (No-Show)`,
-        text: `Hi ${b.user_name},\n\nYour booking for Seat ${b.seat_label} at ${b.library_name} was marked as No-Show and released to the community.`,
+        subject: `[Vidya Asana] Slot Cancelled (15-Min Buffer Expired)`,
+        text: `Hi ${b.user_name},\n\nYour reservation for Seat ${b.seat_label} at ${b.library_name} was cancelled automatically because the 15-minute buffer waiting time expired without check-in.`,
       }).catch((e) => console.error('[Mailer] No-show email error:', e));
     }
-
-    const dateStr =
-      typeof b.booking_date === 'string'
-        ? b.booking_date.substring(0, 10)
-        : new Date(b.booking_date).toISOString().substring(0, 10);
 
     // Free seat and notify next person on the waitlist
     await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);

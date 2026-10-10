@@ -7,7 +7,7 @@ import { sendSuccess, sendError } from '../../utils/response';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { generateQrToken, generateQrDataUrl } from '../../utils/qr';
 import { scoreSeat } from '../../utils/scoring';
-import { emitSeatUpdated, emitBookingUpdated } from '../../realtime/socket';
+import { emitSeatUpdated, emitBookingUpdated, emitBookingReleased } from '../../realtime/socket';
 import { createNotification } from '../notifications/service';
 import { notifyNextInWaitlist } from '../waitlist/service';
 
@@ -294,12 +294,12 @@ bookingsRouter.post('/', authenticate, bookingRateLimiter, async (req, res, next
       const [endHour, endMin] = slot.end_time.split(':').map(Number);
       const slotStartDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
       const slotEndDate = new Date(`${date}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`);
-      const defaultGraceDate = new Date(slotStartDate.getTime() + 30 * 60 * 1000);
+      const defaultGraceDate = new Date(slotStartDate.getTime() + 15 * 60 * 1000);
 
       let finalGraceUntil = defaultGraceDate;
       const isOngoing = slotStartDate <= now && now < slotEndDate;
       if (isOngoing) {
-        const graceFromNow = new Date(now.getTime() + 30 * 60 * 1000);
+        const graceFromNow = new Date(now.getTime() + 15 * 60 * 1000);
         finalGraceUntil = graceFromNow < slotEndDate ? graceFromNow : slotEndDate;
       }
 
@@ -556,7 +556,7 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
     const dateStr = typeof b.booking_date === 'string' ? b.booking_date.substring(0, 10) : new Date(b.booking_date).toISOString().substring(0, 10);
 
     if (coming === false) {
-      // User tapped "not coming" -> cancel
+      // User tapped "not coming" -> directly cancel and release seat
       await query(
         `UPDATE bookings SET status = 'CANCELLED', cancelled_at = NOW() WHERE id = ?`,
         [id]
@@ -566,12 +566,30 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
       const mapped = mapBookingRow(updated[0]);
       emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
       emitBookingUpdated(b.library_id, mapped);
+      emitBookingReleased(userId, {
+        bookingId: b.id,
+        reason: 'CANCELLED',
+        message: 'Your booking was cancelled as you indicated you are not coming.',
+      });
+
+      try {
+        await createNotification({
+          userId,
+          type: 'BOOKING_CANCELLED',
+          title: 'Booking Cancelled & Seat Released',
+          body: `Your booking for seat ${b.seat_label} at ${b.library_name} was cancelled as requested and the seat has been released.`,
+          data: { bookingId: b.id, seatLabel: b.seat_label, libraryName: b.library_name },
+        });
+      } catch (notifErr) {
+        console.warn('[Bookings] Could not deliver cancellation notification:', notifErr);
+      }
+
       return sendSuccess(res, mapped);
     }
 
-    // coming === true
+    // coming === true -> 15 minutes buffer wait time granted irrespective of slot hours
     if (b.arrival_confirmed) {
-      return sendError(res, 'BAD_REQUEST', 'Arrival extension has already been used once for this booking', 409);
+      return sendError(res, 'BAD_REQUEST', 'Arrival buffer has already been confirmed for this booking', 409);
     }
 
     if (b.status !== 'CONFIRMED') {
@@ -580,14 +598,28 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
 
     await query(
       `UPDATE bookings
-       SET grace_until = DATE_ADD(grace_until, INTERVAL 30 MINUTE),
+       SET grace_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE),
            arrival_confirmed = 1
        WHERE id = ?`,
       [id]
     );
 
+    try {
+      await createNotification({
+        userId,
+        type: 'GRACE_EXTENDED',
+        title: '15-Minute Buffer Granted',
+        body: `You have 15 minutes to arrive and check in for seat ${b.seat_label} at ${b.library_name}. If not checked in within 15 minutes, the slot will be cancelled automatically.`,
+        data: { bookingId: b.id, seatLabel: b.seat_label, libraryName: b.library_name },
+      });
+    } catch (notifErr) {
+      console.warn('[Bookings] Could not deliver grace notification:', notifErr);
+    }
+
     const updated = await query<any[]>(`${BOOKING_SELECT_SQL} WHERE b.id = ?`, [id]);
-    sendSuccess(res, mapBookingRow(updated[0]));
+    const mapped = mapBookingRow(updated[0]);
+    emitBookingUpdated(b.library_id, mapped);
+    sendSuccess(res, mapped);
   } catch (err) {
     next(err);
   }

@@ -6,6 +6,8 @@ export interface NotificationPayload {
   userId: string;
   type:
     | 'BOOKING_CONFIRMED'
+    | 'BOOKING_CANCELLED'
+    | 'GRACE_EXTENDED'
     | 'REMINDER'
     | 'NO_SHOW'
     | 'WAITLIST_AVAILABLE'

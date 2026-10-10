@@ -17,14 +17,14 @@ export const ReminderModal: React.FC = () => {
       if (coming) {
         addToast({
           type: 'success',
-          title: 'Arrival Confirmed!',
-          message: '+30 minutes grace window added to your reservation.',
+          title: '15-Minute Buffer Granted',
+          message: 'You have 15 minutes buffer wait time to arrive and scan your QR code.',
         });
       } else {
         addToast({
           type: 'info',
-          title: 'Seat Released',
-          message: 'Your booking was cancelled and the seat released for waitlisted students.',
+          title: 'Slot Cancelled & Seat Released',
+          message: 'Your booking has been cancelled and the seat released for waitlisted students.',
         });
       }
       setReminder(null);
@@ -32,8 +32,8 @@ export const ReminderModal: React.FC = () => {
       if (err instanceof ApiError && err.code === 'BAD_REQUEST') {
         addToast({
           type: 'warning',
-          title: 'Limit Reached',
-          message: 'Grace extension has already been utilized once for this booking.',
+          title: 'Buffer Already Active',
+          message: 'A 15-minute buffer has already been granted for this booking.',
         });
       } else {
         addToast({
@@ -56,16 +56,16 @@ export const ReminderModal: React.FC = () => {
         </div>
 
         <h3 className="text-xl font-bold text-slate-900 mb-2">
-          Are you coming to your seat?
+          Are you coming or not for the slot?
         </h3>
 
         <p className="text-sm text-slate-600 mb-6 leading-relaxed">
-          Your reservation slot has commenced. Please confirm your arrival within the grace window to preserve your allocated seat.
+          Your study slot has started. Please confirm if you are on your way. You will get a 15-minute buffer wait time to arrive and check in.
         </p>
 
         <div className="p-3 bg-amber-50 rounded-xl border border-amber-100 mb-6 text-xs text-amber-800 flex items-center gap-2 justify-center">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>Confirming gives you a one-time +30 min grace extension.</span>
+          <span>If you do not check in within 15 minutes, the slot will be cancelled automatically.</span>
         </div>
 
         <div className="flex flex-col sm:flex-row gap-3">
@@ -75,7 +75,7 @@ export const ReminderModal: React.FC = () => {
             className="flex-1 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-sm transition-all shadow-md hover:shadow-primary/20 flex items-center justify-center gap-2"
           >
             <CheckCircle2 className="w-4 h-4" />
-            Yes, I'm coming (+30m)
+            Yes, I'm coming (+15m)
           </button>
 
           <button
@@ -84,7 +84,7 @@ export const ReminderModal: React.FC = () => {
             className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 font-semibold text-sm transition-all flex items-center justify-center gap-2"
           >
             <XCircle className="w-4 h-4" />
-            No, release seat
+            No, cancel slot
           </button>
         </div>
       </div>

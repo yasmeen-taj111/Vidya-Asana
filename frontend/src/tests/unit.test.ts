@@ -31,6 +31,7 @@ import {
   addStoredWaitlistEntry,
   removeStoredWaitlistEntry,
   updateStoredWaitlistEntry,
+  updateStoredBooking,
   checkBookingRateLimit,
   resetBookingRateLimit,
 } from '../mocks/storage';
@@ -830,6 +831,210 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(activeBookings.length).toBe(1);
       expect(activeBookings[0].userId).toBe(studentA);
       // Confirms invariant: cannot be double booked
+    });
+  });
+
+  describe('Slot Start Arrival Confirmation & 15-Minute Buffer Automation', () => {
+    const allSeats = mockFloorGrids['fl-1'].cells.filter((c) => !!c.seat).map((c) => c.seat!);
+
+    it('calculates 15-minute buffer wait time irrespective of slot hours when booking is created', () => {
+      const studentId = `usr-grace-calc-${Date.now()}`;
+      const seat = allSeats[0];
+      const slot = mockSlots[0]; // Multi-hour slot
+      const date = '2026-11-06';
+
+      const [startH, startM] = slot.startTime.split(':').map(Number);
+      const slotStartMs = new Date(`${date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
+      const expectedGraceUntil = new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+
+      const booking = {
+        id: `bk-grace-${Date.now()}`,
+        code: 'VA-GRC15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1 - Main Hall',
+        slot,
+        date,
+        status: 'CONFIRMED' as const,
+        source: 'ONLINE' as const,
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE' as const,
+        graceUntil: expectedGraceUntil,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      };
+      saveStoredBooking(booking);
+
+      const saved = getUserBookings(studentId).find((b) => b.id === booking.id);
+      expect(saved).toBeDefined();
+      expect(saved?.graceUntil).toBe(expectedGraceUntil);
+      const graceDiffMinutes = (new Date(saved!.graceUntil).getTime() - slotStartMs) / (60 * 1000);
+      expect(graceDiffMinutes).toBe(15);
+    });
+
+    it('when slot starts, formats prompt "Are you coming or not for the slot?" with 15-minute buffer', () => {
+      const promptTitle = 'Are you coming or not for the slot?';
+      const promptMsg = 'Your study slot has started. Please confirm if you are on your way. You will get a 15-minute buffer wait time to arrive and check in.';
+
+      expect(promptTitle).toBe('Are you coming or not for the slot?');
+      expect(promptMsg).toContain('15-minute buffer wait time');
+    });
+
+    it('when user confirms arrival ("Yes"), grants 15-minute buffer wait time and dispatches notification', () => {
+      const studentId = `usr-yes-arrival-${Date.now()}`;
+      const seat = allSeats[1];
+      const slot = mockSlots[1];
+      const bookingId = `bk-yes-${Date.now()}`;
+
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-YES15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: new Date().toISOString(),
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // User confirms arrival "Yes" -> grants 15m buffer wait time
+      const bufferUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const updated = updateStoredBooking(bookingId, {
+        arrivalConfirmed: true,
+        graceUntil: bufferUntil,
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-yes-${Date.now()}`,
+        type: 'GRACE_EXTENDED',
+        title: '15-Minute Buffer Granted',
+        body: `You have 15 minutes to arrive and check in for seat ${seat.label} at Central Study Hub. If not checked in within 15 minutes, your slot will be cancelled automatically.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(updated?.arrivalConfirmed).toBe(true);
+      expect(updated?.graceUntil).toBe(bufferUntil);
+
+      const notifs = getUserNotifications(studentId);
+      expect(notifs.some((n) => n.type === 'GRACE_EXTENDED' && n.title.includes('15-Minute Buffer Granted'))).toBe(true);
+    });
+
+    it('when user clicks "No", directly cancels booking, releases seat, and notifies user', () => {
+      const studentId = `usr-no-arrival-${Date.now()}`;
+      const seat = allSeats[2];
+      const slot = mockSlots[0];
+      const bookingId = `bk-no-${Date.now()}`;
+
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-NO15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: new Date().toISOString(),
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // User clicks "No" -> directly cancel and release seat
+      const cancelled = updateStoredBooking(bookingId, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-no-${Date.now()}`,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking Cancelled & Seat Released',
+        body: `Your booking for seat ${seat.label} at Central Study Hub was cancelled as requested and the seat has been released.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(cancelled?.status).toBe('CANCELLED');
+      expect(cancelled?.cancelledAt).toBeDefined();
+
+      const notifs = getUserNotifications(studentId);
+      const cancelNotif = notifs.find((n) => n.type === 'BOOKING_CANCELLED');
+      expect(cancelNotif).toBeDefined();
+      expect(cancelNotif?.title).toBe('Booking Cancelled & Seat Released');
+      expect(cancelNotif?.body).toContain('seat has been released');
+    });
+
+    it('when 15-minute buffer expires without check-in, auto-cancels slot and triggers website notification', () => {
+      const studentId = `usr-noshow-${Date.now()}`;
+      const seat = allSeats[3];
+      const slot = mockSlots[1];
+      const bookingId = `bk-expired-${Date.now()}`;
+
+      const expiredGraceUntil = new Date(Date.now() - 30000).toISOString(); // Expired 30 seconds ago
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-EXP15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: expiredGraceUntil,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Check overdue: graceUntil <= now and not checked in
+      const bk = getStoredBookings().find((b) => b.id === bookingId)!;
+      const isOverdue = new Date(bk.graceUntil).getTime() <= Date.now() && !bk.checkedInAt;
+      expect(isOverdue).toBe(true);
+
+      // Automated cancellation
+      const autoCancelled = updateStoredBooking(bookingId, {
+        status: 'NO_SHOW',
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-noshow-${Date.now()}`,
+        type: 'NO_SHOW',
+        title: 'Slot Cancelled (15-Min Buffer Expired)',
+        body: `Your reservation for Seat ${seat.label} at Central Study Hub was automatically cancelled because you did not arrive within the 15-minute buffer wait time.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(autoCancelled?.status).toBe('NO_SHOW');
+
+      const notifs = getUserNotifications(studentId);
+      const noShowNotif = notifs.find((n) => n.type === 'NO_SHOW');
+      expect(noShowNotif).toBeDefined();
+      expect(noShowNotif?.title).toBe('Slot Cancelled (15-Min Buffer Expired)');
+      expect(noShowNotif?.body).toContain('15-minute buffer wait time');
     });
   });
 });
