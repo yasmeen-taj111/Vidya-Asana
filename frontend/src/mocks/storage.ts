@@ -67,6 +67,10 @@ function saveJson<T>(key: string, value: T): void {
   } catch {}
 }
 
+export function clearMemoryStore(): void {
+  Object.keys(memoryStore).forEach((k) => delete memoryStore[k]);
+}
+
 // -------------------------------------------------------------
 // 1. Users Store
 // -------------------------------------------------------------

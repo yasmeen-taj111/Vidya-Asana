@@ -1,11 +1,13 @@
 import React from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { BookOpen, User, Building, LogIn, Sparkles } from 'lucide-react';
+import { useAuthStore } from '../store/authStore';
+import { BookOpen, User, Building, LogIn, Sparkles, LayoutDashboard } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
 
 export const PublicLayout: React.FC = () => {
   const location = useLocation();
+  const { user, isAuthenticated } = useAuthStore();
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -19,29 +21,41 @@ export const PublicLayout: React.FC = () => {
           </Link>
 
           <nav className="flex items-center gap-3">
-            <Link
-              to="/login"
-              className={`text-sm font-medium px-4 py-2 rounded-xl transition-all ${
-                location.pathname === '/login'
-                  ? 'bg-slate-100 text-slate-900'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              Sign In
-            </Link>
-            <Link
-              to="/register"
-              className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white transition-all shadow-sm shadow-primary/25"
-            >
-              Student Sign Up
-            </Link>
-            <Link
-              to="/register-library"
-              className="text-sm font-semibold px-4 py-2 rounded-xl bg-navy hover:bg-navy-dark text-white transition-all hidden sm:flex items-center gap-1.5"
-            >
-              <Building className="w-4 h-4 text-accent" />
-              List Library
-            </Link>
+            {isAuthenticated && user ? (
+              <Link
+                to={user.role === 'SITE_OWNER' ? '/owner' : user.role === 'LIBRARY_ADMIN' ? '/admin' : '/app'}
+                className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white transition-all shadow-sm shadow-primary/25 flex items-center gap-2"
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                <span>Go to Dashboard</span>
+              </Link>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className={`text-sm font-medium px-4 py-2 rounded-xl transition-all ${
+                    location.pathname === '/login'
+                      ? 'bg-slate-100 text-slate-900'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
+                  }`}
+                >
+                  Sign In
+                </Link>
+                <Link
+                  to="/register"
+                  className="text-sm font-semibold px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white transition-all shadow-sm shadow-primary/25"
+                >
+                  Student Sign Up
+                </Link>
+                <Link
+                  to="/register-library"
+                  className="text-sm font-semibold px-4 py-2 rounded-xl bg-navy hover:bg-navy-dark text-white transition-all hidden sm:flex items-center gap-1.5"
+                >
+                  <Building className="w-4 h-4 text-accent" />
+                  List Library
+                </Link>
+              </>
+            )}
           </nav>
         </div>
       </header>
