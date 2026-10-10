@@ -182,7 +182,7 @@ export const Book: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const idempotencyKey = `bk-${selectedSeat.id}-${selectedDate}-${selectedSlot.id}-${Date.now()}`;
+      const idempotencyKey = `bk-${selectedSeat.id.slice(-8)}-${selectedDate}-${selectedSlot.id.slice(-8)}-${Date.now()}`;
       const booking = await bookingsApi.createBooking(
         {
           libraryId,
