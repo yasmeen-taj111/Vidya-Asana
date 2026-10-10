@@ -276,7 +276,7 @@ adminRouter.post('/floors', async (req, res, next) => {
       [floorId, libraryId, floorNumber, label, rows, cols]
     );
     
-    sendSuccess(res, { id: floorId, floorNumber, label, rows, cols }, 201);
+    sendSuccess(res, { id: floorId, floorNumber, label, rows, cols }, undefined, 201);
   } catch (err: any) {
     if (err.code === 'ER_DUP_ENTRY') {
       next(new AppError('BAD_REQUEST', `Floor number ${req.body.floorNumber} already exists.`, 409));

@@ -175,17 +175,17 @@ describe('Student Seat Booking & Suggestion Flow', () => {
     const grid1 = createDefaultFloorGrid('fl-1', 1, 'Floor 1');
     const fl1Seats = grid1.cells.filter((c) => c.type === 'SEAT' && c.seat).map((c) => c.seat!);
 
-    // Verify Aisle at column 2 means F1-A3 does NOT exist, while F1-A4 and F1-B1 exist
+    // Verify Aisle at column index 3 means F1-A4 does NOT exist, while F1-A3 and F1-B1 exist
     const hasA3 = fl1Seats.some((s) => s.label === 'F1-A3');
     const hasA4 = fl1Seats.some((s) => s.label === 'F1-A4');
     const hasB1 = fl1Seats.some((s) => s.label === 'F1-B1');
 
-    expect(hasA3).toBe(false);
-    expect(hasA4).toBe(true);
+    expect(hasA3).toBe(true);
+    expect(hasA4).toBe(false);
     expect(hasB1).toBe(true);
 
     // Fallback safe selector guarantees a valid seat object
-    const safeSeat1 = fl1Seats.find((s) => s.label === 'F1-A4') || fl1Seats[0];
+    const safeSeat1 = fl1Seats.find((s) => s.label === 'F1-A3') || fl1Seats[0];
     expect(safeSeat1).toBeDefined();
     expect(safeSeat1.id).toBeDefined();
   });

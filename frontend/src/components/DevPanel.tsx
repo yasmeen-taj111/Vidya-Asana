@@ -62,6 +62,7 @@ export const DevPanel: React.FC = () => {
         type: 'info',
         title: 'Switched Role',
         message: `Active user changed to ${target.name} (${target.role})`,
+      });
       const dest =
         target.role === 'SITE_OWNER'
           ? '/owner'
