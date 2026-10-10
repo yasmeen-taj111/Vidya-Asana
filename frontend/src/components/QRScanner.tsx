@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useSearchParams, Link } from 'react-router-dom';
 import { Html5Qrcode } from 'html5-qrcode';
 import { adminApi } from '../api/admin';
 import { Booking } from '../api/types';
@@ -14,17 +15,27 @@ import {
   MapPin,
   Upload,
   Image as ImageIcon,
+  QrCode,
 } from 'lucide-react';
 
 export const QRScanner: React.FC = () => {
+  const [searchParams] = useSearchParams();
+  const initialCode = searchParams.get('code') || '';
+
   const [scanResult, setScanResult] = useState<{
     booking: Booking;
     result: 'CHECKED_IN' | 'ALREADY_CHECKED_IN';
   } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [manualToken, setManualToken] = useState('');
+  const [manualToken, setManualToken] = useState(initialCode);
   const [scanning, setScanning] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (initialCode) {
+      setManualToken(initialCode);
+    }
+  }, [initialCode]);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -141,9 +152,31 @@ export const QRScanner: React.FC = () => {
     <div className="max-w-xl mx-auto space-y-6">
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl text-center">
         <h3 className="text-xl font-bold text-slate-900 mb-1">QR Entry Scanner</h3>
-        <p className="text-xs text-slate-500 mb-6">
+        <p className="text-xs text-slate-500 mb-4">
           Scan user entry QR passes with the camera, upload a saved pass, or enter the reservation code.
         </p>
+
+        {initialCode && !scanResult && (
+          <div className="mb-6 p-4 rounded-2xl bg-primary/10 border border-primary/20 flex flex-col sm:flex-row items-center justify-between gap-3 text-left animate-fade-in">
+            <div className="flex items-center gap-2.5 text-primary">
+              <QrCode className="w-5 h-5 shrink-0" />
+              <div>
+                <p className="font-extrabold text-xs">Verify Student Reservation</p>
+                <p className="text-[11px] opacity-80">
+                  Ready to verify reservation code <strong className="font-mono text-xs font-black">{initialCode}</strong>.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleVerify(initialCode)}
+              disabled={loading}
+              className="px-4 py-2 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md transition-all whitespace-nowrap"
+            >
+              Verify Code Now
+            </button>
+          </div>
+        )}
 
         {/* Hidden container for file-based scanner */}
         <div id="qr-reader-file" className="hidden" />
@@ -251,6 +284,25 @@ export const QRScanner: React.FC = () => {
                 {scanResult.booking.code}
               </span>
             </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+            <Link
+              to="/admin"
+              className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold transition-all shadow-sm"
+            >
+              Back to Overview
+            </Link>
+            <button
+              type="button"
+              onClick={() => {
+                setScanResult(null);
+                setManualToken('');
+              }}
+              className="px-4 py-2 rounded-xl bg-white hover:bg-slate-100 text-slate-700 text-xs font-bold border border-slate-200 transition-all shadow-sm"
+            >
+              Scan Another Pass
+            </button>
           </div>
         </div>
       )}

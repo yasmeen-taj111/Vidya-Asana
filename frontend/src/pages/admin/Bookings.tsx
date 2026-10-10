@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { adminApi } from '../../api/admin';
 import { format } from 'date-fns';
 import { Booking, TimeSlot } from '../../api/types';
@@ -8,6 +9,7 @@ import { useUiStore } from '../../store/uiStore';
 import { useSeatUpdates } from '../../realtime/useSeatUpdates';
 
 export const Bookings: React.FC = () => {
+  const navigate = useNavigate();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -245,13 +247,12 @@ export const Bookings: React.FC = () => {
                           <>
                             <button
                               type="button"
-                              disabled={updatingId === b.id}
-                              onClick={() => handleUpdateStatus(b.id, 'CHECKED_IN')}
-                              className="px-2.5 py-1 rounded-lg bg-primary/10 hover:bg-primary/20 text-primary font-bold text-[11px] border border-primary/20 transition-colors flex items-center gap-1"
-                              title="Check in student arrival"
+                              onClick={() => navigate(`/admin/scan?code=${encodeURIComponent(b.code)}`)}
+                              className="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-hover text-white font-bold text-[11px] shadow-sm transition-all flex items-center gap-1.5"
+                              title="Verify pass via QR scanner or Reservation Code"
                             >
-                              <Check className="w-3 h-3" />
-                              <span>Check In</span>
+                              <QrCode className="w-3.5 h-3.5" />
+                              <span>Verify & Check In</span>
                             </button>
                             <button
                               type="button"
