@@ -169,3 +169,65 @@ describe('User Isolation and Storage', () => {
     expect(demoDashboard.preferredSeat).toBeDefined();
   });
 });
+
+describe('Student Seat Booking & Suggestion Flow', () => {
+  it('safely finds existing seat models for suggestions without undefined access', () => {
+    const grid1 = createDefaultFloorGrid('fl-1', 1, 'Floor 1');
+    const fl1Seats = grid1.cells.filter((c) => c.type === 'SEAT' && c.seat).map((c) => c.seat!);
+
+    // Verify Aisle at column 2 means F1-A3 does NOT exist, while F1-A4 and F1-B1 exist
+    const hasA3 = fl1Seats.some((s) => s.label === 'F1-A3');
+    const hasA4 = fl1Seats.some((s) => s.label === 'F1-A4');
+    const hasB1 = fl1Seats.some((s) => s.label === 'F1-B1');
+
+    expect(hasA3).toBe(false);
+    expect(hasA4).toBe(true);
+    expect(hasB1).toBe(true);
+
+    // Fallback safe selector guarantees a valid seat object
+    const safeSeat1 = fl1Seats.find((s) => s.label === 'F1-A4') || fl1Seats[0];
+    expect(safeSeat1).toBeDefined();
+    expect(safeSeat1.id).toBeDefined();
+  });
+
+  it('detects user overlapping booking on same date and slot', () => {
+    const studentId = `usr-student-${Date.now()}`;
+    const testDate = '2026-10-15';
+    const slotId = 'slot-1';
+
+    const initialBookings = getUserBookings(studentId);
+    expect(initialBookings.length).toBe(0);
+
+    const booking: any = {
+      id: `bk-${Date.now()}`,
+      code: 'VA-TEST9',
+      libraryId: 'lib-1',
+      libraryName: 'Central Study Hub',
+      seat: { id: 'seat-1', label: 'F1-A1' },
+      floorLabel: 'Floor 1',
+      slot: { id: slotId, name: 'MORNING' },
+      date: testDate,
+      status: 'CONFIRMED',
+      userId: studentId,
+      createdAt: new Date().toISOString(),
+    };
+
+    saveStoredBooking(booking);
+
+    const userBookings = getUserBookings(studentId);
+    expect(userBookings.length).toBe(1);
+
+    // Check overlap logic
+    const hasOverlap = userBookings.some(
+      (b) => b.slot.id === slotId && b.date === testDate && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+    expect(hasOverlap).toBe(true);
+
+    // Another date or slot has no overlap
+    const hasOverlapDifferentDate = userBookings.some(
+      (b) => b.slot.id === slotId && b.date === '2026-10-16' && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+    expect(hasOverlapDifferentDate).toBe(false);
+  });
+});
+

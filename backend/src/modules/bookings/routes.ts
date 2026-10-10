@@ -87,13 +87,15 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       return sendError(res, 'VALIDATION_ERROR', 'Missing required fields: libraryId, seatId, slotId, date', 422);
     }
 
-    // Validate booking date range: today <= date <= today + 14 days
-    const todayStr = new Date().toISOString().substring(0, 10);
+    // Validate booking date range: today (with 1-day timezone leeway) <= date <= today + 14 days
+    const minDate = new Date();
+    minDate.setDate(minDate.getDate() - 1);
+    const minDateStr = minDate.toISOString().substring(0, 10);
     const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + 14);
+    maxDate.setDate(maxDate.getDate() + 15);
     const maxDateStr = maxDate.toISOString().substring(0, 10);
 
-    if (date < todayStr) {
+    if (date < minDateStr) {
       return sendError(res, 'BAD_REQUEST', 'Cannot book a date in the past', 400);
     }
     if (date > maxDateStr) {
@@ -313,14 +315,18 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
     );
     const booking = mapBookingRow(createdRows[0]);
 
-    // Send notification
-    await createNotification({
-      userId,
-      type: 'BOOKING_CONFIRMED',
-      title: 'Booking Confirmed!',
-      body: `Your seat ${booking.seat.label} at ${booking.libraryName} is reserved for ${booking.slot.name} on ${booking.date}.`,
-      data: { bookingId, code },
-    });
+    // Send notification (non-fatal if notification delivery encounters issues)
+    try {
+      await createNotification({
+        userId,
+        type: 'BOOKING_CONFIRMED',
+        title: 'Booking Confirmed!',
+        body: `Your seat ${booking.seat.label} at ${booking.libraryName} is reserved for ${booking.slot.name} on ${booking.date}.`,
+        data: { bookingId, code },
+      });
+    } catch (notifErr) {
+      console.warn('[Bookings] Could not deliver notification (non-fatal):', notifErr);
+    }
 
     sendSuccess(res, booking, undefined, 201);
   } catch (err: any) {

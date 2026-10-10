@@ -567,26 +567,42 @@ export const handlers = [
   }),
 
   http.post(`${BASE}/libraries/:id/suggest-seats`, async () => {
-    const suggestions: SeatSuggestion[] = [
-      {
-        seat: mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'F1-A3')!.seat!,
+    const fl1Seats = mockFloorGrids['fl-1']?.cells
+      .filter((c) => c.type === 'SEAT' && c.seat)
+      .map((c) => c.seat!) || [];
+    const fl2Seats = mockFloorGrids['fl-2']?.cells
+      .filter((c) => c.type === 'SEAT' && c.seat)
+      .map((c) => c.seat!) || [];
+
+    const seat1 = fl1Seats.find((s) => s.label === 'F1-A4') || fl1Seats[0];
+    const seat2 = fl1Seats.find((s) => s.label === 'F1-B1') || fl1Seats[1] || fl1Seats[0];
+    const seat3 = fl2Seats.find((s) => s.label === 'F2-A1') || fl2Seats[0] || seat1;
+
+    const suggestions: SeatSuggestion[] = [];
+    if (seat1) {
+      suggestions.push({
+        seat: seat1,
         floorLabel: 'Floor 1 - Main Hall',
         score: 95,
         reasons: ['Quiet window desk', 'Near power outlet', 'Ergonomic high-back chair'],
-      },
-      {
-        seat: mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'F1-B1')!.seat!,
+      });
+    }
+    if (seat2) {
+      suggestions.push({
+        seat: seat2,
         floorLabel: 'Floor 1 - Main Hall',
         score: 88,
         reasons: ['Direct natural sunlight', 'Dedicated electrical socket'],
-      },
-      {
-        seat: mockFloorGrids['fl-2'].cells.find((c) => c.seat?.label === 'F2-A1')!.seat!,
+      });
+    }
+    if (seat3) {
+      suggestions.push({
+        seat: seat3,
         floorLabel: 'Floor 2 - Silent Research Zone',
         score: 85,
         reasons: ['Silent study zone', 'High-speed LAN port'],
-      },
-    ];
+      });
+    }
 
     return HttpResponse.json({ success: true, data: { suggestions } });
   }),
@@ -598,10 +614,33 @@ export const handlers = [
     const currentUser = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
     const allBookings = getStoredBookings();
 
+    // Check if user already has an active booking for this time slot on this date
+    const userOverlap = allBookings.find(
+      (b) =>
+        b.userId === currentUser.id &&
+        b.slot.id === body.slotId &&
+        b.date === body.date &&
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+
+    if (userOverlap) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'OVERLAPPING_BOOKING',
+            message: 'You already have an active booking during this time slot',
+            details: { conflictingBookingId: userOverlap.id },
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     // Simulate conflict demo if alwaysFailNext toggle is on
     if (alwaysFailNext) {
       useUiStore.getState().setAlwaysFailNext(false); // Reset after trigger
-      const alternativeSeat = mockFloorGrids['fl-1'].cells.find((c) => c.seat && c.seat.id !== body.seatId)?.seat!;
+      const alternativeSeat = mockFloorGrids['fl-1'].cells.find((c) => c.seat && c.seat.id !== body.seatId)?.seat;
       return HttpResponse.json(
         {
           success: false,
@@ -609,14 +648,16 @@ export const handlers = [
             code: 'SEAT_UNAVAILABLE',
             message: 'That seat was just taken by another student.',
             details: {
-              alternatives: [
-                {
-                  seat: alternativeSeat,
-                  floorLabel: 'Floor 1 - Main Hall',
-                  score: 92,
-                  reasons: ['Next adjacent desk', 'Similar quiet zone position'],
-                },
-              ],
+              alternatives: alternativeSeat
+                ? [
+                    {
+                      seat: alternativeSeat,
+                      floorLabel: 'Floor 1 - Main Hall',
+                      score: 92,
+                      reasons: ['Next adjacent desk', 'Similar quiet zone position'],
+                    },
+                  ]
+                : [],
             },
           },
         },
@@ -624,7 +665,7 @@ export const handlers = [
       );
     }
 
-    // Check if already booked
+    // Check if seat is already booked by another user
     const existing = allBookings.find(
       (b) =>
         b.seat.id === body.seatId &&
@@ -634,7 +675,15 @@ export const handlers = [
     );
 
     if (existing) {
-      const alternativeSeat = mockFloorGrids['fl-1'].cells.find((c) => c.seat && c.seat.id !== body.seatId)?.seat!;
+      const bookedSeatIds = new Set(
+        allBookings
+          .filter((b) => b.slot.id === body.slotId && b.date === body.date && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN'))
+          .map((b) => b.seat.id)
+      );
+      bookedSeatIds.add(body.seatId);
+
+      const availableAltSeat = mockFloorGrids['fl-1'].cells.find((c) => c.seat && !bookedSeatIds.has(c.seat.id))?.seat;
+
       return HttpResponse.json(
         {
           success: false,
@@ -642,14 +691,16 @@ export const handlers = [
             code: 'SEAT_UNAVAILABLE',
             message: 'This seat is already booked for this slot.',
             details: {
-              alternatives: [
-                {
-                  seat: alternativeSeat,
-                  floorLabel: 'Floor 1 - Main Hall',
-                  score: 90,
-                  reasons: ['Nearby available seat', 'Equal amenities'],
-                },
-              ],
+              alternatives: availableAltSeat
+                ? [
+                    {
+                      seat: availableAltSeat,
+                      floorLabel: 'Floor 1 - Main Hall',
+                      score: 90,
+                      reasons: ['Nearby available seat', 'Equal amenities'],
+                    },
+                  ]
+                : [],
             },
           },
         },
@@ -670,7 +721,25 @@ export const handlers = [
     });
 
     if (!seat) {
-      return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Seat not found' } }, { status: 404 });
+      // Safe fallback if seatId is from custom floor or backend format
+      const allMockSeats = Object.values(mockFloorGrids)
+        .flatMap((g) => g.cells)
+        .filter((c) => c.type === 'SEAT' && c.seat)
+        .map((c) => c.seat!);
+      const matched = allMockSeats.find((s) => s.id === body.seatId);
+      if (matched) {
+        seat = matched;
+      } else {
+        seat = {
+          id: body.seatId,
+          floorId: 'fl-1',
+          label: 'Desk',
+          seatType: 'INDIVIDUAL',
+          facing: 'N',
+          attributes: { window: true, powerOutlet: true, quietZone: true, nearDoor: false },
+          isActive: true,
+        };
+      }
     }
 
     const chosenSeat: Seat = seat;

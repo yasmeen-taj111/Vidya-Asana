@@ -9,6 +9,8 @@ interface ConflictModalProps {
   onSelectAlternative: (seat: Seat) => void;
   onJoinWaitlist: () => void;
   conflictingBookingId?: string;
+  onViewBookings?: () => void;
+  onChangeSlot?: () => void;
 }
 
 export const ConflictModal: React.FC<ConflictModalProps> = ({
@@ -18,6 +20,8 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
   onSelectAlternative,
   onJoinWaitlist,
   conflictingBookingId,
+  onViewBookings,
+  onChangeSlot,
 }) => {
   if (!isOpen) return null;
 
@@ -35,7 +39,7 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
             </h3>
             <p className="text-xs text-slate-600 mt-1 leading-relaxed">
               {conflictingBookingId
-                ? `You already have an active reservation for this time slot (Booking ID: ${conflictingBookingId}).`
+                ? `You already have an active reservation for this time slot (Booking: ${conflictingBookingId}). You can view your current reservation or select a different time slot or date.`
                 : 'Another student completed reservation for this seat just moments ago. Here are curated matching alternatives in the same slot:'}
             </p>
           </div>
@@ -83,22 +87,41 @@ export const ConflictModal: React.FC<ConflictModalProps> = ({
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row gap-2.5 pt-2">
-          {!conflictingBookingId && (
-            <button
-              onClick={onJoinWaitlist}
-              className="flex-1 py-3 px-4 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-semibold text-xs border border-amber-200 transition-colors flex items-center justify-center gap-2"
-            >
-              <Clock className="w-4 h-4 text-amber-600" />
-              Join Waitlist for This Seat
-            </button>
-          )}
+          {conflictingBookingId ? (
+            <>
+              {onViewBookings && (
+                <button
+                  onClick={onViewBookings}
+                  className="flex-1 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-colors shadow-md shadow-primary/20"
+                >
+                  View My Reservation
+                </button>
+              )}
+              <button
+                onClick={onChangeSlot || onClose}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+              >
+                Change Slot or Date
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onJoinWaitlist}
+                className="flex-1 py-3 px-4 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 font-semibold text-xs border border-amber-200 transition-colors flex items-center justify-center gap-2"
+              >
+                <Clock className="w-4 h-4 text-amber-600" />
+                Join Waitlist for This Seat
+              </button>
 
-          <button
-            onClick={onClose}
-            className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
-          >
-            Cancel & Return to Grid
-          </button>
+              <button
+                onClick={onClose}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+              >
+                Cancel & Return to Grid
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>
