@@ -28,6 +28,8 @@ interface SeatGridProps {
   selectedSeatId?: string;
   onSelectSeat?: (seat: Seat) => void;
   interactive?: boolean;
+  /** When true, BOOKED seats are also clickable (e.g. admin walk-out / release flow) */
+  allowOccupiedClick?: boolean;
 }
 
 export const SeatGrid: React.FC<SeatGridProps> = ({
@@ -35,6 +37,7 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
   selectedSeatId,
   onSelectSeat,
   interactive = true,
+  allowOccupiedClick = false,
 }) => {
   const [zoom, setZoom] = useState(1);
   const [hoveredCell, setHoveredCell] = useState<GridCell | null>(null);
@@ -75,7 +78,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
       case 'AVAILABLE':
         return 'bg-emerald-50 border-emerald-400 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-500 cursor-pointer shadow-sm';
       case 'BOOKED':
-        return 'bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed opacity-75';
+        return allowOccupiedClick
+          ? 'bg-rose-50 border-rose-400 text-rose-700 hover:bg-rose-100 hover:border-rose-500 cursor-pointer shadow-sm'
+          : 'bg-slate-100 border-slate-300 text-slate-400 cursor-not-allowed opacity-75';
       case 'YOURS':
         return 'bg-blue-600 border-blue-700 text-white font-bold ring-2 ring-blue-300 shadow-sm';
       case 'HELD':
@@ -91,7 +96,8 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
     if (!interactive || !cell.seat) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
-      if (cell.status === 'AVAILABLE' && onSelectSeat) {
+      const clickable = cell.status === 'AVAILABLE' || (allowOccupiedClick && cell.status === 'BOOKED');
+      if (clickable && onSelectSeat) {
         onSelectSeat(cell.seat);
       }
     }
@@ -195,12 +201,16 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
             const seat = cell.seat!;
 
+            const isClickable =
+              interactive &&
+              (status === 'AVAILABLE' || (allowOccupiedClick && status === 'BOOKED'));
+
             return (
               <button
                 key={`${cell.row}-${cell.col}`}
                 type="button"
-                tabIndex={status === 'AVAILABLE' ? 0 : -1}
-                disabled={!interactive || status !== 'AVAILABLE'}
+                tabIndex={isClickable ? 0 : -1}
+                disabled={!isClickable}
                 onClick={() => onSelectSeat && onSelectSeat(seat)}
                 onKeyDown={(e) => handleKeyDown(e, cell)}
                 onMouseEnter={() => setHoveredCell(cell)}

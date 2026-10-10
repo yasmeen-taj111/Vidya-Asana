@@ -51,6 +51,7 @@ export const Book: React.FC = () => {
   const [selectedSlot, setSelectedSlot] = useState<TimeSlot | null>(null);
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [suggestions, setSuggestions] = useState<SeatSuggestion[]>([]);
+  const [userBookings, setUserBookings] = useState<Booking[]>([]);
 
   // Conflict modal states
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -87,25 +88,54 @@ export const Book: React.FC = () => {
       .catch((err) => console.error(err));
   }, [libraryId]);
 
-  // Load grid and suggestions when date or slot changes
+  // Load user's existing bookings to prevent surprising overlap conflicts
+  useEffect(() => {
+    bookingsApi
+      .getMyBookings({ upcoming: true })
+      .then((res) => {
+        setUserBookings(res.bookings || []);
+      })
+      .catch((err) => {
+        console.warn('[Book] Could not load upcoming bookings:', err);
+      });
+  }, []);
+
+  const getSlotReservation = (slotId: string) => {
+    return userBookings.find(
+      (b) =>
+        b.slot.id === slotId &&
+        b.date === selectedDate &&
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+  };
+
+  // Load grid and suggestions when date or slot changes (decoupled so suggestions never block grid)
   const loadFloorGridAndSuggestions = async () => {
     if (!libraryId || !activeFloorId || !selectedSlot) return;
 
     setLoadingGrid(true);
     try {
-      const [gridData, sugData] = await Promise.all([
-        librariesApi.getFloorGrid(libraryId, activeFloorId, selectedDate, selectedSlot.id),
-        librariesApi.suggestSeats(libraryId, {
-          date: selectedDate,
-          slotId: selectedSlot.id,
-          preferences: {},
-        }),
-      ]);
-
+      const gridData = await librariesApi.getFloorGrid(
+        libraryId,
+        activeFloorId,
+        selectedDate,
+        selectedSlot.id
+      );
       setGrids((prev) => ({ ...prev, [activeFloorId]: gridData }));
+    } catch (err) {
+      console.error('[Book] Error loading floor grid:', err);
+    }
+
+    try {
+      const sugData = await librariesApi.suggestSeats(libraryId, {
+        date: selectedDate,
+        slotId: selectedSlot.id,
+        preferences: {},
+      });
       setSuggestions(sugData);
     } catch (err) {
-      console.error(err);
+      console.warn('[Book] Non-fatal suggestion error:', err);
+      setSuggestions([]);
     } finally {
       setLoadingGrid(false);
     }
@@ -157,10 +187,17 @@ export const Book: React.FC = () => {
         idempotencyKey
       );
 
-      // Fetch QR token / code
-      const qrInfo = await bookingsApi.getBookingQR(booking.id);
       setConfirmedBooking(booking);
-      setQrDataUrl(qrInfo.qrDataUrl);
+      setUserBookings((prev) => [...prev, booking]);
+
+      // Fetch QR token / code safely without blocking confirmation
+      try {
+        const qrInfo = await bookingsApi.getBookingQR(booking.id);
+        setQrDataUrl(qrInfo.qrDataUrl);
+      } catch (qrErr) {
+        console.warn('[Book] Non-fatal QR preview error:', qrErr);
+      }
+
       setStep(4); // Success step
       addToast({
         type: 'success',
@@ -264,7 +301,10 @@ export const Book: React.FC = () => {
               {availableDates.map((d) => (
                 <button
                   key={d}
-                  onClick={() => setSelectedDate(d)}
+                  onClick={() => {
+                    setSelectedDate(d);
+                    setSelectedSeat(null);
+                  }}
                   className={`p-3 rounded-2xl border text-center min-w-[5.5rem] transition-all flex flex-col items-center justify-center ${
                     selectedDate === d
                       ? 'border-primary bg-primary text-white shadow-md shadow-primary/25 font-bold scale-105'
@@ -294,35 +334,69 @@ export const Book: React.FC = () => {
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
-              {slots.map((s) => (
-                <button
-                  key={s.id}
-                  onClick={() => setSelectedSlot(s)}
-                  className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between space-y-3 ${
-                    selectedSlot?.id === s.id
-                      ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm font-semibold'
-                      : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-900">{s.name}</span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100">
-                      {s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
-                    </span>
-                  </div>
-                  <div className="text-base font-black text-navy font-mono">
-                    {s.startTime} – {s.endTime}
-                  </div>
-                </button>
-              ))}
+              {slots.map((s) => {
+                const isSelected = selectedSlot?.id === s.id;
+                const existingRes = getSlotReservation(s.id);
+
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => {
+                      setSelectedSlot(s);
+                      setSelectedSeat(null);
+                    }}
+                    className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between space-y-3 relative ${
+                      isSelected
+                        ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm font-semibold'
+                        : existingRes
+                        ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-50 text-slate-700'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-900">{s.name}</span>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100">
+                        {s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
+                      </span>
+                    </div>
+                    <div className="text-base font-black text-navy font-mono">
+                      {s.startTime} – {s.endTime}
+                    </div>
+                    {existingRes && (
+                      <div className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1 w-fit">
+                        <CheckCircle2 className="w-3 h-3 text-amber-600" /> Reserved ({existingRes.seat.label})
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
             </div>
+
+            {selectedSlot && getSlotReservation(selectedSlot.id) && (
+              <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
+                <div className="flex items-center gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>
+                    You already have desk{' '}
+                    <strong>{getSlotReservation(selectedSlot.id)?.seat.label}</strong> reserved for the{' '}
+                    {selectedSlot.name} slot on {selectedDate}.
+                  </span>
+                </div>
+                <button
+                  onClick={() => navigate('/app/bookings')}
+                  className="text-xs font-bold text-amber-800 underline hover:text-amber-900 shrink-0"
+                >
+                  View My Bookings
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end pt-4 border-t border-slate-100">
             <button
               onClick={() => setStep(2)}
-              disabled={!selectedSlot}
-              className="px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-lg shadow-primary/25 transition-all flex items-center gap-2 disabled:opacity-50"
+              disabled={!selectedSlot || Boolean(getSlotReservation(selectedSlot?.id || ''))}
+              className="px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-lg shadow-primary/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>Continue to Seat Selection</span>
               <ArrowRight className="w-4 h-4" />
@@ -541,6 +615,11 @@ export const Book: React.FC = () => {
         }}
         onJoinWaitlist={handleJoinWaitlist}
         conflictingBookingId={conflictingBookingId}
+        onViewBookings={() => navigate('/app/bookings')}
+        onChangeSlot={() => {
+          setShowConflictModal(false);
+          setStep(1);
+        }}
       />
     </div>
   );
