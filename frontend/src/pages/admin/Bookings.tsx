@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { adminApi } from '../../api/admin';
+import { format } from 'date-fns';
 import { Booking, TimeSlot } from '../../api/types';
 import { BookOpen, Calendar, Filter, QrCode, RefreshCw, LogOut, XCircle, Check, RotateCcw } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
@@ -17,7 +18,7 @@ export const Bookings: React.FC = () => {
   const { user } = useAuthStore();
   const { addToast } = useUiStore();
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
 
   const loadData = async () => {
     try {

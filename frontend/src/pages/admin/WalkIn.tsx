@@ -1,16 +1,30 @@
 import React, { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { adminApi } from '../../api/admin';
 import { FloorGrid, TimeSlot, Seat, Booking } from '../../api/types';
 import { SeatGrid } from '../../components/SeatGrid/SeatGrid';
 import { useUiStore } from '../../store/uiStore';
 import { useAuthStore } from '../../store/authStore';
 import { useSeatUpdates } from '../../realtime/useSeatUpdates';
-import { UserPlus, LogOut, CheckCircle2, Clock, User, Armchair, X } from 'lucide-react';
+import { UserPlus, LogOut, CheckCircle2, Clock, Calendar, User, Armchair, X, Sparkles } from 'lucide-react';
+
+const getCurrentSlot = (slotList: TimeSlot[]) => {
+  const now = new Date();
+  const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+  // 1. Current active ongoing slot
+  const active = slotList.find((s) => s.startTime <= curTime && s.endTime > curTime);
+  if (active) return active;
+  // 2. Next upcoming slot
+  const upcoming = slotList.find((s) => s.startTime > curTime);
+  if (upcoming) return upcoming;
+  // 3. Fallback to first slot
+  return slotList[0];
+};
 
 export const WalkIn: React.FC = () => {
   const [slots, setSlots] = useState<TimeSlot[]>([]);
   const [selectedSlotId, setSelectedSlotId] = useState('');
-  const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [date, setDate] = useState(() => format(new Date(), 'yyyy-MM-dd'));
   const [grids, setGrids] = useState<FloorGrid[]>([]);
   const [activeFloorIndex, setActiveFloorIndex] = useState(0);
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -34,13 +48,16 @@ export const WalkIn: React.FC = () => {
         adminApi.getBookings({ date }),
       ]);
       setSlots(sData);
-      if (sData.length > 0 && !selectedSlotId) {
-        setSelectedSlotId(sData[0].id);
+
+      const bestSlot = getCurrentSlot(sData);
+      const activeSlotId = selectedSlotId || (bestSlot ? bestSlot.id : '');
+      if (sData.length > 0 && !selectedSlotId && bestSlot) {
+        setSelectedSlotId(bestSlot.id);
       }
       setBookings(bData.bookings);
 
       if (floors.length > 0) {
-        const currentSlot = selectedSlotId || (sData[0] ? sData[0].id : '');
+        const currentSlot = activeSlotId;
         const loadedGrids = await Promise.all(
           floors.map((f) => adminApi.getFloorGrid(f.id))
         );
@@ -173,24 +190,60 @@ export const WalkIn: React.FC = () => {
         </div>
 
         {/* Date and Slot selection ribbon */}
-        <div className="flex items-center gap-2 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm text-xs">
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className="p-1.5 rounded-lg border border-slate-200 outline-none"
-          />
-          <select
-            value={selectedSlotId}
-            onChange={(e) => setSelectedSlotId(e.target.value)}
-            className="p-1.5 rounded-lg border border-slate-200 outline-none font-semibold text-primary"
+        <div className="flex flex-wrap items-center gap-2 bg-white p-2 rounded-2xl border border-slate-100 shadow-sm text-xs">
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 rounded-xl border border-slate-200/70 text-slate-600 font-medium">
+            <Calendar className="w-3.5 h-3.5 text-primary" />
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="bg-transparent font-bold text-slate-800 outline-none cursor-pointer"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-50 rounded-xl border border-slate-200/70 text-slate-600 font-medium">
+            <Clock className="w-3.5 h-3.5 text-primary" />
+            <select
+              value={selectedSlotId}
+              onChange={(e) => setSelectedSlotId(e.target.value)}
+              className="bg-transparent outline-none font-bold text-primary cursor-pointer"
+            >
+              {slots.map((s) => {
+                const now = new Date();
+                const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+                const isLive =
+                  s.startTime <= curTime &&
+                  s.endTime > curTime &&
+                  date === format(now, 'yyyy-MM-dd');
+                return (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.startTime} - {s.endTime})
+                    {isLive ? ' • LIVE NOW' : ''}
+                  </option>
+                );
+              })}
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const today = format(new Date(), 'yyyy-MM-dd');
+              setDate(today);
+              const best = getCurrentSlot(slots);
+              if (best) setSelectedSlotId(best.id);
+              addToast({
+                type: 'info',
+                title: 'Set to Current Time',
+                message: `Updated to current date (${today}) and live session slot.`,
+              });
+            }}
+            className="p-1.5 px-3 rounded-xl bg-teal-light text-teal-dark hover:bg-teal/20 font-bold transition-colors flex items-center gap-1.5 shadow-2xs"
+            title="Reset to current local date and live time slot"
           >
-            {slots.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name} ({s.startTime} - {s.endTime})
-              </option>
-            ))}
-          </select>
+            <Clock className="w-3.5 h-3.5" />
+            <span>Live Now</span>
+          </button>
         </div>
       </div>
 
@@ -234,9 +287,23 @@ export const WalkIn: React.FC = () => {
               </button>
             </div>
 
-            <p className="text-xs text-slate-600">
-              Allocating <span className="font-bold text-slate-900">{selectedSeat.label}</span> ({selectedSeat.seatType}) for the selected time window.
-            </p>
+            <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-100 space-y-1.5 text-xs">
+              <div className="flex justify-between text-slate-500">
+                <span>Desk:</span>
+                <span className="font-bold text-slate-900">{selectedSeat.label} ({selectedSeat.seatType})</span>
+              </div>
+              <div className="flex justify-between text-slate-500">
+                <span>Date:</span>
+                <span className="font-semibold text-slate-800">{date}</span>
+              </div>
+              <div className="flex justify-between text-slate-500">
+                <span>Session Slot:</span>
+                <span className="font-semibold text-primary">
+                  {slots.find((s) => s.id === selectedSlotId)?.name}{' '}
+                  ({slots.find((s) => s.id === selectedSlotId)?.startTime} – {slots.find((s) => s.id === selectedSlotId)?.endTime})
+                </span>
+              </div>
+            </div>
 
             <form onSubmit={handleConfirmWalkIn} className="space-y-3 text-xs">
               <div>

@@ -157,7 +157,7 @@ describe('User Isolation and Storage', () => {
       seat,
       floorLabel: 'Floor 1',
       slot,
-      date: new Date().toISOString().split('T')[0],
+      date: new Date().toLocaleDateString('en-CA'),
       status: 'CONFIRMED',
       source: 'ONLINE',
       userId: testUserId,

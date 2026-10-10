@@ -351,7 +351,7 @@ export function getUserStudyReport(userId: string, range = 'week'): StudyReport 
   for (let i = daysCount - 1; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = d.toLocaleDateString('en-CA');
     dailyMap[dateStr] = 0;
   }
 
@@ -394,10 +394,10 @@ export function getUserStudyReport(userId: string, range = 'week'): StudyReport 
   let streakDays = 0;
   if (activeDates.size > 0) {
     const sortedDates = Array.from(activeDates).sort().reverse();
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = now.toLocaleDateString('en-CA');
     const yesterday = new Date(now);
     yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const yesterdayStr = yesterday.toLocaleDateString('en-CA');
 
     // Check if streak is alive (active today or yesterday)
     if (sortedDates[0] === todayStr || sortedDates[0] === yesterdayStr) {
@@ -405,7 +405,7 @@ export function getUserStudyReport(userId: string, range = 'week'): StudyReport 
       let checkDate = new Date(sortedDates[0]);
       for (let i = 1; i < sortedDates.length; i++) {
         checkDate.setDate(checkDate.getDate() - 1);
-        const expected = checkDate.toISOString().split('T')[0];
+        const expected = checkDate.toLocaleDateString('en-CA');
         if (sortedDates[i] === expected) {
           streakDays++;
         } else {
@@ -430,7 +430,7 @@ export function getUserStudyReport(userId: string, range = 'week'): StudyReport 
 // -------------------------------------------------------------
 export function getUserDashboard(userId: string) {
   const userBookings = getUserBookings(userId);
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = new Date().toLocaleDateString('en-CA');
 
   // Upcoming reservation
   const upcomingBooking = userBookings.find(

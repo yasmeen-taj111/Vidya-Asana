@@ -268,7 +268,7 @@ export const mockFloorGrids: Record<string, FloorGrid> = {
   'fl-2': createDefaultFloorGrid('fl-2', 2, 'Floor 2 - Silent Research Zone'),
 };
 
-const todayStr = new Date().toISOString().split('T')[0];
+const todayStr = new Date().toLocaleDateString('en-CA');
 
 export const mockBookings: Booking[] = [
   {
