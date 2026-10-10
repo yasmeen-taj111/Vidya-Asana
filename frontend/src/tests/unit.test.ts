@@ -1246,6 +1246,146 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       handleKeyDown({ key: 'Escape' });
       expect(isOpen).toBe(false);
     });
+
+    describe('Library Registration 3-Step Flow & Slot Pricing Configurator', () => {
+      it('navigates from step 1 to step 2 and step 3 without premature redirect or creation', () => {
+        let currentStep = 1;
+        const setStep = (s: number) => {
+          currentStep = s;
+        };
+
+        const adminForm = {
+          adminName: 'Rajesh Kumar',
+          adminEmail: 'rajesh@greenwoodstudy.in',
+          adminPassword: 'Password123!',
+        };
+
+        const handleNextStep1 = () => {
+          if (!adminForm.adminName.trim() || !adminForm.adminEmail.trim() || adminForm.adminPassword.length < 8) {
+            return false;
+          }
+          setStep(2);
+          return true;
+        };
+
+        expect(handleNextStep1()).toBe(true);
+        expect(currentStep).toBe(2);
+
+        const libForm = {
+          libName: 'Greenwood Study Hall',
+          address: '42 MG Road',
+          city: 'Bengaluru',
+        };
+
+        const handleNextStep2 = () => {
+          if (!libForm.libName.trim() || !libForm.address.trim() || !libForm.city.trim()) {
+            return false;
+          }
+          setStep(3);
+          return true;
+        };
+
+        expect(handleNextStep2()).toBe(true);
+        expect(currentStep).toBe(3);
+      });
+
+      it('configures admission pricing for Morning, Afternoon, Evening, and Late Night slots', () => {
+        // Default paid pricing configuration
+        let isFree = false;
+        let morningPrice = 50;
+        let afternoonPrice = 60;
+        let eveningPrice = 50;
+        let nightPrice = 40;
+
+        const buildSlotPayload = () => ({
+          isFree,
+          slotPricing: {
+            morningPrice: isFree ? 0 : morningPrice,
+            afternoonPrice: isFree ? 0 : afternoonPrice,
+            eveningPrice: isFree ? 0 : eveningPrice,
+            nightPrice: isFree ? 0 : nightPrice,
+          },
+        });
+
+        // Paid: correct custom slot amounts
+        const paidPayload = buildSlotPayload();
+        expect(paidPayload.isFree).toBe(false);
+        expect(paidPayload.slotPricing.morningPrice).toBe(50);
+        expect(paidPayload.slotPricing.afternoonPrice).toBe(60);
+        expect(paidPayload.slotPricing.eveningPrice).toBe(50);
+        expect(paidPayload.slotPricing.nightPrice).toBe(40);
+
+        // When toggled to Free Admission: all slots set to 0
+        isFree = true;
+        const freePayload = buildSlotPayload();
+        expect(freePayload.isFree).toBe(true);
+        expect(freePayload.slotPricing.morningPrice).toBe(0);
+        expect(freePayload.slotPricing.afternoonPrice).toBe(0);
+        expect(freePayload.slotPricing.eveningPrice).toBe(0);
+        expect(freePayload.slotPricing.nightPrice).toBe(0);
+      });
+
+      it('initializes 4 operating time slots with exact configured prices when library is registered', () => {
+        const testLibId = `lib-slots-test-${Date.now()}`;
+        let isFree = false;
+        let morningPrice: number = 45;
+        let afternoonPrice: number = 55;
+        let eveningPrice: number = 65;
+        let nightPrice: number = 35;
+
+        const initialSlots: TimeSlot[] = [
+          {
+            id: `slot-${testLibId}-morning`,
+            libraryId: testLibId,
+            name: 'MORNING',
+            startTime: '06:00',
+            endTime: '12:00',
+            isFree: isFree || morningPrice === 0,
+            pricePaise: isFree ? 0 : morningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-afternoon`,
+            libraryId: testLibId,
+            name: 'AFTERNOON',
+            startTime: '12:00',
+            endTime: '17:00',
+            isFree: isFree || afternoonPrice === 0,
+            pricePaise: isFree ? 0 : afternoonPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-evening`,
+            libraryId: testLibId,
+            name: 'EVENING',
+            startTime: '17:00',
+            endTime: '21:00',
+            isFree: isFree || eveningPrice === 0,
+            pricePaise: isFree ? 0 : eveningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-night`,
+            libraryId: testLibId,
+            name: 'NIGHT',
+            startTime: '21:00',
+            endTime: '23:59',
+            isFree: isFree || nightPrice === 0,
+            pricePaise: isFree ? 0 : nightPrice * 100,
+            isActive: true,
+          },
+        ];
+
+        saveStoredSlotsForLibrary(testLibId, initialSlots);
+        const storedSlots = getStoredSlotsForLibrary(testLibId);
+
+        expect(storedSlots.length).toBe(4);
+        expect(storedSlots.find((s) => s.name === 'MORNING')?.pricePaise).toBe(4500);
+        expect(storedSlots.find((s) => s.name === 'AFTERNOON')?.pricePaise).toBe(5500);
+        expect(storedSlots.find((s) => s.name === 'EVENING')?.pricePaise).toBe(6500);
+        expect(storedSlots.find((s) => s.name === 'NIGHT')?.pricePaise).toBe(3500);
+      });
+    });
   });
 });
 

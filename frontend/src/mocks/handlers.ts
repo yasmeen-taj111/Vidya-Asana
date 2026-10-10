@@ -134,6 +134,12 @@ export const handlers = [
           powerOutlets: boolean;
         };
         isFree: boolean;
+        slotPricing?: {
+          morningPrice?: number;
+          afternoonPrice?: number;
+          eveningPrice?: number;
+          nightPrice?: number;
+        };
       };
     };
 
@@ -183,9 +189,53 @@ export const handlers = [
     };
     saveStoredLibrary(newLib);
 
-    // Initialize fresh empty floors and slots for the new library
+    // Initialize fresh empty floors and operating slots with configured prices for the new library
     saveStoredFloorsForLibrary(libId, {});
-    saveStoredSlotsForLibrary(libId, []);
+    const slotPricing = body.library?.slotPricing || {};
+    const isFree = !!body.library?.isFree;
+    const initialSlots: TimeSlot[] = [
+      {
+        id: `slot-${libId}-morning`,
+        libraryId: libId,
+        name: 'MORNING',
+        startTime: '06:00',
+        endTime: '12:00',
+        isFree: isFree || slotPricing.morningPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.morningPrice !== undefined ? slotPricing.morningPrice * 100 : 5000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-afternoon`,
+        libraryId: libId,
+        name: 'AFTERNOON',
+        startTime: '12:00',
+        endTime: '17:00',
+        isFree: isFree || slotPricing.afternoonPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.afternoonPrice !== undefined ? slotPricing.afternoonPrice * 100 : 6000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-evening`,
+        libraryId: libId,
+        name: 'EVENING',
+        startTime: '17:00',
+        endTime: '21:00',
+        isFree: isFree || slotPricing.eveningPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.eveningPrice !== undefined ? slotPricing.eveningPrice * 100 : 5000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-night`,
+        libraryId: libId,
+        name: 'NIGHT',
+        startTime: '21:00',
+        endTime: '23:59',
+        isFree: isFree || slotPricing.nightPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.nightPrice !== undefined ? slotPricing.nightPrice * 100 : 4000),
+        isActive: true,
+      },
+    ];
+    saveStoredSlotsForLibrary(libId, initialSlots);
 
     // Welcome notification for the newly registered library admin
     addStoredNotification(newAdmin.id, {

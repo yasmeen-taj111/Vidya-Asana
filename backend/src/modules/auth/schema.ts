@@ -36,5 +36,11 @@ export const registerLibrarySchema = z.object({
       powerOutlets: z.boolean().default(true),
     }),
     isFree: z.boolean().default(false),
+    slotPricing: z.object({
+      morningPrice: z.number().nonnegative().optional(),
+      afternoonPrice: z.number().nonnegative().optional(),
+      eveningPrice: z.number().nonnegative().optional(),
+      nightPrice: z.number().nonnegative().optional(),
+    }).optional(),
   }),
 });

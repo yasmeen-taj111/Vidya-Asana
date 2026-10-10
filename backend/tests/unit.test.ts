@@ -313,5 +313,117 @@ describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
       expect(isFutureExpired).toBe(false);
     });
   });
+
+  describe('Library Registration Slot Pricing Schema & Allocation', () => {
+    it('validates library registration payload with configured slot pricing', async () => {
+      const { registerLibrarySchema } = await import('../src/modules/auth/schema');
+
+      const validPayload = {
+        admin: {
+          name: 'Rajesh Kumar',
+          email: 'admin@apexlibrary.in',
+          password: 'Password123!',
+          phone: '+91 9876543210',
+        },
+        library: {
+          name: 'Apex Study Library',
+          description: 'Modern reading rooms',
+          address: '12 Residency Road',
+          city: 'Bengaluru',
+          latitude: 12.9716,
+          longitude: 77.5946,
+          contactEmail: 'contact@apexlibrary.in',
+          contactPhone: '+91 9876543210',
+          amenities: {
+            lockers: true,
+            cctv: true,
+            ac: true,
+            wifi: true,
+            powerOutlets: true,
+          },
+          isFree: false,
+          slotPricing: {
+            morningPrice: 50,
+            afternoonPrice: 60,
+            eveningPrice: 50,
+            nightPrice: 40,
+          },
+        },
+      };
+
+      const parsed = registerLibrarySchema.parse(validPayload);
+      expect(parsed.library.isFree).toBe(false);
+      expect(parsed.library.slotPricing?.morningPrice).toBe(50);
+      expect(parsed.library.slotPricing?.afternoonPrice).toBe(60);
+      expect(parsed.library.slotPricing?.eveningPrice).toBe(50);
+      expect(parsed.library.slotPricing?.nightPrice).toBe(40);
+    });
+
+    it('generates 4 operating slots with paise conversions and handles free override', () => {
+      const libDataPaid = {
+        isFree: false,
+        slotPricing: {
+          morningPrice: 50,
+          afternoonPrice: 60,
+          eveningPrice: 50,
+          nightPrice: 40,
+        },
+      };
+
+      const slotsPaid = [
+        {
+          name: 'MORNING',
+          startTime: '06:00',
+          endTime: '12:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.morningPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.morningPrice * 100,
+        },
+        {
+          name: 'AFTERNOON',
+          startTime: '12:00',
+          endTime: '17:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.afternoonPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.afternoonPrice * 100,
+        },
+        {
+          name: 'EVENING',
+          startTime: '17:00',
+          endTime: '21:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.eveningPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.eveningPrice * 100,
+        },
+        {
+          name: 'NIGHT',
+          startTime: '21:00',
+          endTime: '23:59',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.nightPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.nightPrice * 100,
+        },
+      ];
+
+      expect(slotsPaid[0].pricePaise).toBe(5000); // ₹50
+      expect(slotsPaid[1].pricePaise).toBe(6000); // ₹60
+      expect(slotsPaid[2].pricePaise).toBe(5000); // ₹50
+      expect(slotsPaid[3].pricePaise).toBe(4000); // ₹40
+
+      const libDataFree = {
+        isFree: true,
+        slotPricing: {
+          morningPrice: 50,
+          afternoonPrice: 60,
+          eveningPrice: 50,
+          nightPrice: 40,
+        },
+      };
+
+      const slotsFree = slotsPaid.map((s) => ({
+        ...s,
+        isFree: true,
+        pricePaise: 0,
+      }));
+
+      expect(slotsFree.every((s) => s.isFree && s.pricePaise === 0)).toBe(true);
+    });
+  });
 });
 

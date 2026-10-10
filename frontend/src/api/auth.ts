@@ -32,6 +32,12 @@ export interface RegisterLibraryPayload {
       powerOutlets: boolean;
     };
     isFree: boolean;
+    slotPricing?: {
+      morningPrice?: number;
+      afternoonPrice?: number;
+      eveningPrice?: number;
+      nightPrice?: number;
+    };
   };
 }
 
