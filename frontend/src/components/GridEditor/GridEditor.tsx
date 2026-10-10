@@ -42,6 +42,8 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
 
   // Generator modal state
   const [showGenerator, setShowGenerator] = useState(false);
+  const [showAddFloor, setShowAddFloor] = useState(false);
+  const [newFloorData, setNewFloorData] = useState({ number: '', label: '' });
   const [generatorFloorSpecs, setGeneratorFloorSpecs] = useState<GenerateFloorSpec[]>([
     {
       floorNumber: 1,
@@ -163,7 +165,23 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
           : undefined,
       }));
 
-      await adminApi.updateFloorLayout(currentGrid.floorId, {
+      let floorId = currentGrid.floorId;
+      if (floorId.startsWith('temp-')) {
+        const res = await adminApi.createFloor({
+          floorNumber: currentGrid.floorNumber,
+          label: currentGrid.label,
+          rows: currentGrid.rows,
+          cols: currentGrid.cols,
+        }) as any;
+        floorId = res.id;
+        
+        // Update the grid ID in state so subsequent saves work without recreating
+        const updatedGrids = [...grids];
+        updatedGrids[activeFloorIndex].floorId = floorId;
+        setGrids(updatedGrids);
+      }
+
+      await adminApi.updateFloorLayout(floorId, {
         rows: currentGrid.rows,
         cols: currentGrid.cols,
         cells: payloadCells,
@@ -221,6 +239,78 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
     }
   };
 
+  const handleAddFloor = () => {
+    if (!newFloorData.number || !newFloorData.label) {
+      addToast({ type: 'error', title: 'Error', message: 'Please fill all fields.' });
+      return;
+    }
+    const num = parseInt(newFloorData.number);
+    if (isNaN(num)) return;
+    
+    if (grids.some((g) => g.floorNumber === num)) {
+      addToast({ type: 'error', title: 'Duplicate Floor', message: `Floor number ${num} already exists.` });
+      return;
+    }
+    
+    if (grids.some((g) => g.label.trim().toLowerCase() === newFloorData.label.trim().toLowerCase())) {
+      addToast({ type: 'error', title: 'Duplicate Name', message: `Floor name "${newFloorData.label}" already exists.` });
+      return;
+    }
+    
+    const newFloor: FloorGrid = {
+      floorId: `temp-${Date.now()}`,
+      floorNumber: num,
+      label: newFloorData.label,
+      rows: 5,
+      cols: 6,
+      cells: []
+    };
+    
+    for(let r=0; r<5; r++) {
+      for(let c=0; c<6; c++) {
+        newFloor.cells.push({ row: r, col: c, type: 'EMPTY' });
+      }
+    }
+    
+    const updatedGrids = [...grids, newFloor];
+    pushState(updatedGrids);
+    setActiveFloorIndex(updatedGrids.length - 1);
+    setShowAddFloor(false);
+    setNewFloorData({ number: '', label: '' });
+  };
+
+  const handleRemoveFloor = async () => {
+    if (grids.length <= 1) {
+      addToast({ type: 'error', title: 'Cannot Remove', message: 'You must have at least one floor.' });
+      return;
+    }
+
+    const floorToRemove = currentGrid;
+    const confirmed = window.confirm(
+      `Are you sure you want to remove "${floorToRemove.label}"? This will delete all seats and layout data for this floor.`
+    );
+    if (!confirmed) return;
+
+    try {
+      // Delete from backend if it's a persisted floor
+      if (!floorToRemove.floorId.startsWith('temp-')) {
+        await adminApi.deleteFloor(floorToRemove.floorId);
+      }
+
+      const updatedGrids = grids.filter((_, idx) => idx !== activeFloorIndex);
+      pushState(updatedGrids);
+      setActiveFloorIndex(Math.min(activeFloorIndex, updatedGrids.length - 1));
+      setSelectedCellPos(null);
+      addToast({
+        type: 'success',
+        title: 'Floor Removed',
+        message: `"${floorToRemove.label}" has been removed.`,
+      });
+    } catch (err) {
+      addToast({ type: 'error', title: 'Remove Failed', message: 'Could not remove floor.' });
+    }
+  };
+
   const selectedCell = selectedCellPos
     ? currentGrid?.cells.find(
         (c) => c.row === selectedCellPos.row && c.col === selectedCellPos.col
@@ -250,11 +340,46 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
           ))}
 
           <button
-            onClick={() => setShowGenerator(true)}
+            onClick={() => {
+              setGeneratorFloorSpecs(
+                grids.map((g) => {
+                  const counts = { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 };
+                  g.cells.forEach((c) => {
+                    if (c.type === 'SEAT' && c.seat) {
+                      const st = c.seat.seatType;
+                      if (st === 'INDIVIDUAL') counts.INDIVIDUAL++;
+                      if (st === 'GROUP') counts.GROUP++;
+                      if (st === 'ACCESSIBLE') counts.ACCESSIBLE++;
+                      if (st === 'COMPUTER') counts.COMPUTER++;
+                    }
+                  });
+                  return {
+                    floorNumber: g.floorNumber,
+                    label: g.label,
+                    rows: g.rows,
+                    cols: g.cols,
+                    counts,
+                  };
+                })
+              );
+              setShowGenerator(true);
+            }}
             className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-navy text-white hover:bg-navy-dark transition-all flex items-center gap-1.5 shadow-sm"
           >
             <Sliders className="w-3.5 h-3.5" />
-            Auto Generator
+            Seat Generator
+          </button>
+          <button
+            onClick={() => setShowAddFloor(true)}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            + Add Floor
+          </button>
+          <button
+            onClick={handleRemoveFloor}
+            className="px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 text-white hover:bg-rose-700 transition-all flex items-center gap-1.5 shadow-sm"
+          >
+            − Remove Floor
           </button>
         </div>
 
@@ -562,15 +687,16 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
               Define the grid dimensions and category seat quotas per floor. The algorithm will automatically layout desks, aisles, and window assignments.
             </p>
 
-            {generatorFloorSpecs.map((spec, sIdx) => {
-              const total = Object.values(spec.counts).reduce((a, b) => a + b, 0);
+            <div className="max-h-[60vh] overflow-y-auto pr-2 space-y-4 scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+              {generatorFloorSpecs.map((spec, sIdx) => {
+                const total = Object.values(spec.counts).reduce((a, b) => a + b, 0);
               const capacity = spec.rows * spec.cols;
               const isOver = total > capacity;
 
               return (
                 <div key={sIdx} className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 text-xs">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900">Floor {spec.floorNumber}</span>
+                    <span className="font-bold text-slate-900">Floor {spec.floorNumber} - {spec.label}</span>
                     <span className={`font-mono font-bold ${isOver ? 'text-rose-600' : 'text-emerald-600'}`}>
                       {total} / {capacity} Seats Used
                     </span>
@@ -670,6 +796,7 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
                 </div>
               );
             })}
+            </div>
 
             <div className="flex gap-2 pt-2">
               <button
@@ -680,6 +807,56 @@ export const GridEditor: React.FC<GridEditorProps> = ({ initialGrids }) => {
               </button>
               <button
                 onClick={() => setShowGenerator(false)}
+                className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Floor Modal */}
+      {showAddFloor && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 animate-scale-up space-y-4">
+            <h3 className="text-lg font-bold text-slate-900">Add New Floor</h3>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-600 block mb-1">Floor Number</label>
+                <input
+                  type="number"
+                  value={newFloorData.number}
+                  onChange={(e) => setNewFloorData({...newFloorData, number: e.target.value})}
+                  placeholder="e.g. 3"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none focus:border-primary text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-slate-600 block mb-1">Floor Name (Label)</label>
+                <input
+                  type="text"
+                  value={newFloorData.label}
+                  onChange={(e) => setNewFloorData({...newFloorData, label: e.target.value})}
+                  placeholder="e.g. Floor 3 - Reading Room"
+                  className="w-full p-2.5 rounded-xl border border-slate-200 outline-none focus:border-primary text-sm"
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handleAddFloor}
+                className="flex-1 py-3 px-4 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-all shadow-md shadow-primary/20"
+              >
+                Add Floor
+              </button>
+              <button
+                onClick={() => {
+                  setShowAddFloor(false);
+                  setNewFloorData({ number: '', label: '' });
+                }}
                 className="flex-1 py-3 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
               >
                 Cancel

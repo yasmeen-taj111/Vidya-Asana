@@ -194,30 +194,34 @@ export const mockSlots: TimeSlot[] = [
 ];
 
 // Build floor grids for Central Study Hub
-export function createDefaultFloorGrid(floorId: string, floorNumber: number, label: string): FloorGrid {
-  const rows = 5;
-  const cols = 6;
+export function createDefaultFloorGrid(floorId: string, floorNumber: number, label: string, rows = 5, cols = 6): FloorGrid {
   const cells: FloorGrid['cells'] = [];
 
   let seatIndex = 1;
+  const aisleCol = cols > 4 ? Math.floor(cols / 2) : -1; // Place aisle at midpoint for wider grids
 
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
-      // Create aisle in column 2
-      if (c === 2) {
+      // Create aisle in the middle column
+      if (c === aisleCol) {
         cells.push({ row: r, col: c, type: 'AISLE' });
         continue;
       }
-      // Door at row 4, col 0
-      if (r === 4 && c === 0) {
+      // Door at last row, col 0
+      if (r === rows - 1 && c === 0) {
         cells.push({ row: r, col: c, type: 'DOOR' });
+        continue;
+      }
+      // Window wall at first row, last col
+      if (r === 0 && c === cols - 1) {
+        cells.push({ row: r, col: c, type: 'WINDOW_WALL' });
         continue;
       }
 
       const isWindow = c === 0 || c === cols - 1;
       const isComputer = r === 0;
-      const isGroup = r === 3 && (c === 3 || c === 4);
-      const isAccessible = r === 4 && c === 1;
+      const isGroup = r === Math.floor(rows / 2) && c > aisleCol;
+      const isAccessible = r === rows - 1 && c === 1;
 
       const seatType = isComputer
         ? 'COMPUTER'
@@ -235,9 +239,9 @@ export function createDefaultFloorGrid(floorId: string, floorNumber: number, lab
         facing: r % 2 === 0 ? 'N' : 'S',
         attributes: {
           window: isWindow,
-          powerOutlet: isComputer || r < 3,
-          quietZone: r < 2,
-          nearDoor: r >= 3 && c <= 2,
+          powerOutlet: isComputer || r < Math.ceil(rows / 3),
+          quietZone: r < Math.ceil(rows / 3),
+          nearDoor: r >= rows - 2 && c <= 2,
         },
         isActive: true,
         groupCapacity: isGroup ? 4 : undefined,

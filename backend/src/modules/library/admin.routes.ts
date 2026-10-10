@@ -121,7 +121,15 @@ adminRouter.post('/library/grid/generate', async (req, res, next) => {
       throw new AppError('BAD_REQUEST', 'Cannot regenerate grid while active future reservations exist', 409);
     }
 
-    // Clear old floors and layout for this library
+    // Clean up dependent records that reference seats/floors for this library
+    // (bookings and waitlist FK constraints don't cascade on seat delete)
+    await conn.query(
+      'DELETE w FROM waitlist_entries w INNER JOIN seats s ON w.seat_id = s.id WHERE s.library_id = ?',
+      [libraryId]
+    );
+    await conn.query('DELETE FROM bookings WHERE library_id = ?', [libraryId]);
+
+    // Clear old floors and layout for this library (cascades to seats and floor_cells)
     await conn.query('DELETE FROM floors WHERE library_id = ?', [libraryId]);
 
     const resultGrids: any[] = [];
@@ -244,6 +252,72 @@ adminRouter.post('/library/grid/generate', async (req, res, next) => {
 
     await conn.commit();
     sendSuccess(res, resultGrids);
+  } catch (err) {
+    await conn.rollback();
+    next(err);
+  } finally {
+    conn.release();
+  }
+});
+
+// POST /admin/floors
+adminRouter.post('/floors', async (req, res, next) => {
+  try {
+    const { floorNumber, label, rows, cols } = req.body;
+    if (floorNumber === undefined || !label || !rows || !cols) {
+      throw new AppError('BAD_REQUEST', 'Missing required fields', 400);
+    }
+    
+    const floorId = generateUUID();
+    const libraryId = req.user!.libraryId!;
+    
+    await query(
+      'INSERT INTO floors (id, library_id, floor_number, label, `rows`, `cols`) VALUES (?, ?, ?, ?, ?, ?)',
+      [floorId, libraryId, floorNumber, label, rows, cols]
+    );
+    
+    sendSuccess(res, { id: floorId, floorNumber, label, rows, cols }, 201);
+  } catch (err: any) {
+    if (err.code === 'ER_DUP_ENTRY') {
+      next(new AppError('BAD_REQUEST', `Floor number ${req.body.floorNumber} already exists.`, 409));
+    } else {
+      next(err);
+    }
+  }
+});
+
+// DELETE /admin/floors/:floorId
+adminRouter.delete('/floors/:floorId', async (req, res, next) => {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const libraryId = req.user!.libraryId!;
+    const { floorId } = req.params;
+
+    // Verify floor belongs to this library
+    const rows = await query(
+      'SELECT id FROM floors WHERE id = ? AND library_id = ?',
+      [floorId, libraryId]
+    );
+    if ((rows as any[]).length === 0) {
+      throw new AppError('NOT_FOUND', 'Floor not found', 404);
+    }
+
+    // Clean up bookings and waitlist referencing seats on this floor
+    await conn.query(
+      'DELETE b FROM bookings b INNER JOIN seats s ON b.seat_id = s.id WHERE s.floor_id = ?',
+      [floorId]
+    );
+    await conn.query(
+      'DELETE w FROM waitlist_entries w INNER JOIN seats s ON w.seat_id = s.id WHERE s.floor_id = ?',
+      [floorId]
+    );
+
+    // Delete floor (cascades to seats and floor_cells)
+    await conn.query('DELETE FROM floors WHERE id = ?', [floorId]);
+
+    await conn.commit();
+    sendSuccess(res, { deleted: true });
   } catch (err) {
     await conn.rollback();
     next(err);

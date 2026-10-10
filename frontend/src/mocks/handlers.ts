@@ -221,12 +221,20 @@ export const handlers = [
     const result: typeof mockFloorGrids[string][] = [];
     floors.forEach((f) => {
       const flId = `fl-${f.floorNumber}`;
-      const grid = createDefaultFloorGrid(flId, f.floorNumber, f.label);
+      const grid = createDefaultFloorGrid(flId, f.floorNumber, f.label, f.rows, f.cols);
       mockFloorGrids[flId] = grid;
       result.push(grid);
     });
 
     return HttpResponse.json({ success: true, data: result });
+  }),
+
+  http.post(`${BASE}/admin/floors`, async ({ request }) => {
+    const data = await request.json() as any;
+    const floorId = `fl-temp-${Date.now()}`;
+    const newFloor = createDefaultFloorGrid(floorId, data.floorNumber, data.label, data.rows, data.cols);
+    mockFloorGrids[floorId] = newFloor;
+    return HttpResponse.json({ success: true, data: { id: floorId, ...data } });
   }),
 
   http.get(`${BASE}/admin/floors`, () => {
