@@ -31,6 +31,20 @@ END:VCALENDAR`;
     document.body.removeChild(link);
   };
 
+  const downloadQrImage = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `vidya-asana-qr-${booking.code}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const copyCode = () => {
+    navigator.clipboard.writeText(booking.code);
+  };
+
   return (
     <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl max-w-md w-full mx-auto text-center relative overflow-hidden">
       {/* Decorative top header accent */}
@@ -59,7 +73,7 @@ END:VCALENDAR`;
       </div>
 
       {/* QR Code Container */}
-      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 inline-block mb-4 shadow-inner">
+      <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 inline-block mb-3 shadow-inner">
         {qrDataUrl ? (
           <img
             src={qrDataUrl}
@@ -74,15 +88,25 @@ END:VCALENDAR`;
       </div>
 
       {/* Human readable booking code */}
-      <div className="mb-6">
+      <div className="mb-5 flex flex-col items-center">
         <p className="text-xs text-slate-400 font-medium">Reservation Code</p>
-        <p className="text-2xl font-mono font-black text-navy tracking-widest mt-0.5">
-          {booking.code}
-        </p>
+        <div className="flex items-center gap-2 mt-0.5">
+          <p className="text-2xl font-mono font-black text-navy tracking-widest">
+            {booking.code}
+          </p>
+          <button
+            onClick={copyCode}
+            type="button"
+            className="px-2 py-1 text-[10px] font-semibold bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-md transition-colors"
+            title="Copy code to clipboard"
+          >
+            Copy
+          </button>
+        </div>
       </div>
 
       {/* Seat & Slot Grid Details */}
-      <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100 text-left text-xs mb-6">
+      <div className="grid grid-cols-2 gap-3 p-4 bg-slate-50/80 rounded-2xl border border-slate-100 text-left text-xs mb-5">
         <div>
           <span className="text-slate-400 block font-medium">Allocated Seat:</span>
           <span className="font-extrabold text-slate-900 text-sm">
@@ -105,14 +129,27 @@ END:VCALENDAR`;
         </div>
       </div>
 
-      {/* Calendar Export CTA */}
-      <button
-        onClick={downloadIcs}
-        className="w-full py-3 px-4 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 shadow-sm"
-      >
-        <Download className="w-4 h-4" />
-        Add to Calendar (.ics)
-      </button>
+      {/* Action buttons */}
+      <div className="flex gap-2">
+        {qrDataUrl && (
+          <button
+            onClick={downloadQrImage}
+            type="button"
+            className="flex-1 py-2.5 px-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+          >
+            <Download className="w-4 h-4" />
+            Save QR
+          </button>
+        )}
+        <button
+          onClick={downloadIcs}
+          type="button"
+          className="flex-1 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs transition-all flex items-center justify-center gap-1.5 shadow-sm"
+        >
+          <Calendar className="w-4 h-4" />
+          Calendar (.ics)
+        </button>
+      </div>
     </div>
   );
 };
