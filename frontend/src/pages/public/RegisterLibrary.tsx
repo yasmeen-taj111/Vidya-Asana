@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { authApi } from '../../api/auth';
 import { useUiStore } from '../../store/uiStore';
+import {
+  findStoredUserByEmail,
+  saveStoredUser,
+  saveStoredLibrary,
+  saveStoredFloorsForLibrary,
+  saveStoredSlotsForLibrary,
+  addStoredNotification,
+} from '../../mocks/storage';
 import {
   Building,
   User,
@@ -47,9 +55,16 @@ export const RegisterLibrary: React.FC = () => {
   const [powerOutlets, setPowerOutlets] = useState(true);
   const [isFree, setIsFree] = useState(false);
 
-  const { setAuth } = useAuthStore();
+  const { user, isAuthenticated, setAuth } = useAuthStore();
   const { addToast } = useUiStore();
   const navigate = useNavigate();
+
+  // If already authenticated as library admin, redirect directly to /admin
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'LIBRARY_ADMIN') {
+      navigate('/admin', { replace: true });
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleNext = () => {
     if (step === 1) {
@@ -59,6 +74,19 @@ export const RegisterLibrary: React.FC = () => {
       }
       if (adminPassword.length < 8) {
         addToast({ type: 'warning', title: 'Weak Password', message: 'Password must be at least 8 characters.' });
+        return;
+      }
+
+      // If user is already registered as a library admin, smoothly log them in
+      const existing = findStoredUserByEmail(adminEmail);
+      if (existing && existing.role === 'LIBRARY_ADMIN') {
+        setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Welcome Back!',
+          message: 'Found your registered library account. Redirecting to your dashboard...',
+        });
+        navigate('/admin');
         return;
       }
     } else if (step === 2) {
@@ -110,10 +138,103 @@ export const RegisterLibrary: React.FC = () => {
       });
       navigate('/admin');
     } catch (err: any) {
+      // 1. If user is already registered as a library admin, smoothly log them in to their dashboard
+      const existing = findStoredUserByEmail(adminEmail);
+      if (existing && existing.role === 'LIBRARY_ADMIN') {
+        setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Welcome Back!',
+          message: 'Found your registered library account. Redirecting to your dashboard...',
+        });
+        navigate('/admin');
+        return;
+      }
+
+      // 2. If email belongs to an existing student user
+      if (existing && existing.role === 'USER') {
+        addToast({
+          type: 'warning',
+          title: 'Account Already Exists',
+          message: 'This email is already registered as a student account. Please sign in or use a different email for your library.',
+        });
+        setLoading(false);
+        return;
+      }
+
+      const isNetworkError =
+        err?.message === 'Network Error' ||
+        err?.name === 'AxiosError' ||
+        (typeof err?.message === 'string' && err.message.toLowerCase().includes('network'));
+
+      // If network is unreachable while in mock mode, complete registration directly into storage
+      if (isNetworkError && import.meta.env.VITE_USE_MOCKS === 'true') {
+
+        const libId = `lib-${Date.now()}`;
+        const newAdmin = {
+          id: `usr-${Date.now()}`,
+          name: adminName,
+          email: adminEmail,
+          role: 'LIBRARY_ADMIN' as const,
+          phone: adminPhone || undefined,
+          libraryId: libId,
+          createdAt: new Date().toISOString(),
+        };
+        saveStoredUser(newAdmin);
+
+        const newLib = {
+          id: libId,
+          name: libName,
+          description: description || undefined,
+          address,
+          city,
+          latitude,
+          longitude,
+          contactEmail: adminEmail,
+          contactPhone: adminPhone || undefined,
+          amenities: {
+            lockers,
+            cctv,
+            ac,
+            wifi,
+            powerOutlets,
+          },
+          isFree,
+          status: 'PENDING' as const,
+          seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
+          totalSeats: 0,
+          floorCount: 0,
+          createdAt: new Date().toISOString(),
+        };
+        saveStoredLibrary(newLib);
+        saveStoredFloorsForLibrary(libId, {});
+        saveStoredSlotsForLibrary(libId, []);
+
+        addStoredNotification(newAdmin.id, {
+          id: `notif-${Date.now()}`,
+          title: 'Library Registration Submitted! 🏛️',
+          body: `Your application for "${newLib.name}" is pending platform owner verification. Once approved, you can build your floor layouts and accept bookings.`,
+          type: 'SYSTEM',
+          isRead: false,
+          createdAt: new Date().toISOString(),
+        });
+
+        setAuth(newAdmin, `mock-token-${newAdmin.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Registration Submitted!',
+          message: 'Your library registration is pending platform owner review.',
+        });
+        navigate('/admin');
+        return;
+      }
+
       addToast({
         type: 'error',
         title: 'Registration Error',
-        message: err.message || 'Could not complete library registration.',
+        message: isNetworkError
+          ? 'Unable to reach the server. Please verify the backend is running on http://localhost:4000.'
+          : err.message || 'Could not complete library registration.',
       });
     } finally {
       setLoading(false);

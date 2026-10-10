@@ -28,24 +28,27 @@ const httpServer = http.createServer(app);
 // Initialize Socket.IO
 initSocket(httpServer);
 
+// Allowed origin checker supporting any localhost or 127.0.0.1 port in dev
+const isAllowedOrigin = (origin?: string): boolean => {
+  if (!origin) return true;
+  if (origin === env.CLIENT_ORIGIN) return true;
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
+  return false;
+};
+
 // Security & utility middlewares
 app.use(
   cors({
     origin: (origin, callback) => {
-      const allowed = [
-        env.CLIENT_ORIGIN,
-        'http://localhost:5173',
-        'http://127.0.0.1:5173',
-        'http://localhost:5174',
-        'http://127.0.0.1:5174',
-      ];
-      if (!origin || allowed.includes(origin)) {
+      if (!origin || isAllowedOrigin(origin)) {
         callback(null, true);
       } else {
-        callback(new Error(`CORS: origin ${origin} not allowed`));
+        callback(null, false);
       }
     },
     credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept'],
   })
 );
 app.use(helmet());

@@ -47,7 +47,7 @@ import {
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library } from '../api/types';
 
-const BASE = 'http://localhost:4000/api/v1';
+const BASE = '*/api/v1';
 
 export const handlers = [
   // 4.1 Auth
@@ -135,8 +135,23 @@ export const handlers = [
 
     const existingUser = findStoredUserByEmail(body.admin.email);
     if (existingUser) {
+      if (existingUser.role === 'LIBRARY_ADMIN') {
+        let existingLib = existingUser.libraryId ? findStoredLibraryById(existingUser.libraryId) : undefined;
+        if (!existingLib) {
+          const allLibs = getStoredLibraries();
+          existingLib = allLibs.find((l) => l.contactEmail?.toLowerCase() === body.admin.email.toLowerCase());
+        }
+        return HttpResponse.json({
+          success: true,
+          data: {
+            user: existingUser,
+            accessToken: `mock-token-${existingUser.id}-${Date.now()}`,
+            library: existingLib,
+          },
+        });
+      }
       return HttpResponse.json(
-        { success: false, error: { code: 'EMAIL_TAKEN', message: 'Email address already in use' } },
+        { success: false, error: { code: 'EMAIL_TAKEN', message: 'An account with this email address already exists as a student. Please sign in or use another email.' } },
         { status: 409 }
       );
     }
