@@ -67,6 +67,11 @@ export const RegisterLibrary: React.FC = () => {
   const { addToast } = useUiStore();
   const navigate = useNavigate();
 
+  // Auto-scroll to top of form when step changes so the header is always visible
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
+
   // If already authenticated as library admin, redirect directly to /admin
   useEffect(() => {
     if (isAuthenticated && user?.role === 'LIBRARY_ADMIN') {
@@ -74,10 +79,33 @@ export const RegisterLibrary: React.FC = () => {
     }
   }, [isAuthenticated, user, navigate]);
 
+  const fillSampleData = () => {
+    setAdminName('Rajesh Kumar');
+    setAdminEmail(`admin.${Date.now().toString().slice(-4)}@centrallibrary.org`);
+    setAdminPassword('Password123!');
+    setAdminPhone('+91 80 2558 1234');
+    setLibName('Central Study Hub');
+    setDescription('Premier air-conditioned library with high-speed fiber internet and quiet research desks.');
+    setAddress('42 MG Road, Ashok Nagar');
+    setCity('Bengaluru');
+    setLatitude(12.9716);
+    setLongitude(77.5946);
+    addToast({
+      type: 'info',
+      title: 'Sample Data Loaded',
+      message: 'Demo administrator and library details pre-filled for rapid setup.',
+    });
+  };
+
   const handleNext = () => {
     if (step === 1) {
       if (!adminName.trim() || !adminEmail.trim() || !adminPassword) {
         addToast({ type: 'warning', title: 'Missing fields', message: 'Please complete all admin account fields.' });
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(adminEmail.trim())) {
+        addToast({ type: 'warning', title: 'Invalid Email', message: 'Please enter a valid official email address.' });
         return;
       }
       if (adminPassword.length < 8) {
@@ -98,32 +126,68 @@ export const RegisterLibrary: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Validate Step 1 fields
+    if (!adminName.trim()) {
+      addToast({ type: 'warning', title: 'Missing Admin Name', message: 'Please enter administrator full name in Step 1.' });
+      setStep(1);
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!adminEmail.trim() || !emailRegex.test(adminEmail.trim())) {
+      addToast({ type: 'warning', title: 'Invalid Email', message: 'Please provide a valid official email address in Step 1.' });
+      setStep(1);
+      return;
+    }
+    if (!adminPassword || adminPassword.length < 8) {
+      addToast({ type: 'warning', title: 'Weak Password', message: 'Admin password must be at least 8 characters in Step 1.' });
+      setStep(1);
+      return;
+    }
+
+    // 2. Validate Step 2 fields
+    if (!libName.trim()) {
+      addToast({ type: 'warning', title: 'Missing Library Name', message: 'Please enter library name in Step 2.' });
+      setStep(2);
+      return;
+    }
+    if (!address.trim()) {
+      addToast({ type: 'warning', title: 'Missing Address', message: 'Please enter library street address in Step 2.' });
+      setStep(2);
+      return;
+    }
+    if (!city.trim()) {
+      addToast({ type: 'warning', title: 'Missing City', message: 'Please enter library city in Step 2.' });
+      setStep(2);
+      return;
+    }
+
     setLoading(true);
 
     try {
       const slotPricingPayload = {
-        morningPrice: isFree ? 0 : morningPrice,
-        afternoonPrice: isFree ? 0 : afternoonPrice,
-        eveningPrice: isFree ? 0 : eveningPrice,
-        nightPrice: isFree ? 0 : nightPrice,
+        morningPrice: isFree ? 0 : Number(morningPrice) || 0,
+        afternoonPrice: isFree ? 0 : Number(afternoonPrice) || 0,
+        eveningPrice: isFree ? 0 : Number(eveningPrice) || 0,
+        nightPrice: isFree ? 0 : Number(nightPrice) || 0,
       };
 
       const data = await authApi.registerLibrary({
         admin: {
-          name: adminName,
-          email: adminEmail,
+          name: adminName.trim(),
+          email: adminEmail.trim().toLowerCase(),
           password: adminPassword,
-          phone: adminPhone || undefined,
+          phone: adminPhone?.trim() || undefined,
         },
         library: {
-          name: libName,
-          description,
-          address,
-          city,
-          latitude,
-          longitude,
-          contactEmail: adminEmail,
-          contactPhone: adminPhone || undefined,
+          name: libName.trim(),
+          description: description?.trim() || undefined,
+          address: address.trim(),
+          city: city.trim(),
+          latitude: Number(latitude) || 12.9716,
+          longitude: Number(longitude) || 77.5946,
+          contactEmail: adminEmail.trim().toLowerCase(),
+          contactPhone: adminPhone?.trim() || undefined,
           amenities: {
             lockers,
             cctv,
@@ -145,7 +209,7 @@ export const RegisterLibrary: React.FC = () => {
       navigate('/admin');
     } catch (err: any) {
       // 1. If user is already registered as a library admin, smoothly log them in to their dashboard
-      const existing = findStoredUserByEmail(adminEmail);
+      const existing = findStoredUserByEmail(adminEmail.trim().toLowerCase());
       if (existing && existing.role === 'LIBRARY_ADMIN') {
         setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
         addToast({
@@ -175,14 +239,13 @@ export const RegisterLibrary: React.FC = () => {
 
       // If network is unreachable while in mock mode, complete registration directly into storage
       if (isNetworkError && import.meta.env.VITE_USE_MOCKS === 'true') {
-
         const libId = `lib-${Date.now()}`;
         const newAdmin = {
           id: `usr-${Date.now()}`,
-          name: adminName,
-          email: adminEmail,
+          name: adminName.trim(),
+          email: adminEmail.trim().toLowerCase(),
           role: 'LIBRARY_ADMIN' as const,
-          phone: adminPhone || undefined,
+          phone: adminPhone?.trim() || undefined,
           libraryId: libId,
           createdAt: new Date().toISOString(),
         };
@@ -190,14 +253,14 @@ export const RegisterLibrary: React.FC = () => {
 
         const newLib = {
           id: libId,
-          name: libName,
-          description: description || undefined,
-          address,
-          city,
-          latitude,
-          longitude,
-          contactEmail: adminEmail,
-          contactPhone: adminPhone || undefined,
+          name: libName.trim(),
+          description: description?.trim() || undefined,
+          address: address.trim(),
+          city: city.trim(),
+          latitude: Number(latitude) || 12.9716,
+          longitude: Number(longitude) || 77.5946,
+          contactEmail: adminEmail.trim().toLowerCase(),
+          contactPhone: adminPhone?.trim() || undefined,
           amenities: {
             lockers,
             cctv,
@@ -277,10 +340,18 @@ export const RegisterLibrary: React.FC = () => {
         return;
       }
 
+      const fieldErrors = err?.details?.fields
+        ? Object.entries(err.details.fields as Record<string, string>)
+            .map(([field, msg]) => `${field.replace(/^library\./, '').replace(/^admin\./, '')}: ${msg}`)
+            .join(' • ')
+        : '';
+
       addToast({
         type: 'error',
         title: 'Registration Error',
-        message: isNetworkError
+        message: fieldErrors
+          ? `Please check required fields: ${fieldErrors}`
+          : isNetworkError
           ? 'Unable to reach the server. Please verify the backend is running on http://localhost:4000.'
           : err.message || 'Could not complete library registration.',
       });
@@ -290,69 +361,97 @@ export const RegisterLibrary: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto my-12 px-4 sm:px-0">
-      <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-xl space-y-6">
+    <div className="max-w-2xl mx-auto my-4 sm:my-8 px-4 sm:px-0">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl space-y-6">
         {/* Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2 relative">
+          <button
+            type="button"
+            onClick={fillSampleData}
+            className="absolute right-0 top-0 text-[11px] font-semibold text-primary hover:text-primary-hover bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20 transition-all flex items-center gap-1 cursor-pointer"
+            title="Auto-fill with sample test data"
+          >
+            <Sparkles className="w-3 h-3 text-accent" /> Auto-Fill Demo
+          </button>
+
           <div className="w-12 h-12 rounded-2xl bg-navy text-white flex items-center justify-center mx-auto shadow-md">
             <Building className="w-6 h-6 text-accent" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">List Your Library</h2>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">List Your Library</h2>
           <p className="text-xs text-slate-500">
             Join the Vidya Asana network to automate reservations and prevent no-shows
           </p>
 
-          {/* Stepper Indicator */}
-          <div className="flex items-center justify-center gap-2 pt-4">
+          {/* Stepper Indicator with Clean Labels */}
+          <div className="flex items-center justify-center gap-2 pt-3">
             <button
               type="button"
               onClick={() => setStep(1)}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                step >= 1 ? 'bg-primary text-white shadow-sm ring-2 ring-primary/20' : 'bg-slate-100 text-slate-400'
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 1
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : step > 1
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-400'
               }`}
-              title="Step 1: Administrator Account"
             >
-              1
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">
+                {step > 1 ? '✓' : '1'}
+              </span>
+              <span>Account</span>
             </button>
-            <div className={`w-8 h-0.5 ${step >= 2 ? 'bg-primary' : 'bg-slate-200'}`} />
+
+            <div className={`w-4 h-0.5 ${step >= 2 ? 'bg-primary' : 'bg-slate-200'}`} />
+
             <button
               type="button"
               onClick={() => {
                 if (!adminName.trim() || !adminEmail.trim() || adminPassword.length < 8) {
-                  addToast({ type: 'warning', title: 'Incomplete Step 1', message: 'Please complete admin account details first.' });
+                  addToast({ type: 'warning', title: 'Step 1 Incomplete', message: 'Please enter admin name, email, and password first.' });
+                  setStep(1);
                   return;
                 }
                 setStep(2);
               }}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                step >= 2 ? 'bg-primary text-white shadow-sm ring-2 ring-primary/20' : 'bg-slate-100 text-slate-400'
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 2
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : step > 2
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-400'
               }`}
-              title="Step 2: Library Information"
             >
-              2
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">
+                {step > 2 ? '✓' : '2'}
+              </span>
+              <span>Location</span>
             </button>
-            <div className={`w-8 h-0.5 ${step >= 3 ? 'bg-primary' : 'bg-slate-200'}`} />
+
+            <div className={`w-4 h-0.5 ${step >= 3 ? 'bg-primary' : 'bg-slate-200'}`} />
+
             <button
               type="button"
               onClick={() => {
                 if (!adminName.trim() || !adminEmail.trim() || adminPassword.length < 8) {
-                  addToast({ type: 'warning', title: 'Incomplete Step 1', message: 'Please complete admin account details first.' });
+                  addToast({ type: 'warning', title: 'Step 1 Incomplete', message: 'Please enter admin name, email, and password first.' });
                   setStep(1);
                   return;
                 }
                 if (!libName.trim() || !address.trim() || !city.trim()) {
-                  addToast({ type: 'warning', title: 'Incomplete Step 2', message: 'Please complete library location details first.' });
+                  addToast({ type: 'warning', title: 'Step 2 Incomplete', message: 'Please enter library name, address, and city first.' });
                   setStep(2);
                   return;
                 }
                 setStep(3);
               }}
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
-                step >= 3 ? 'bg-primary text-white shadow-sm ring-2 ring-primary/20' : 'bg-slate-100 text-slate-400'
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 3
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : 'bg-slate-100 text-slate-400'
               }`}
-              title="Step 3: Amenities & Slot Pricing"
             >
-              3
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">3</span>
+              <span>Pricing</span>
             </button>
           </div>
         </div>
