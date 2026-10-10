@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { bookingsApi } from '../api/bookings';
-import { Clock, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { Clock, CheckCircle2, XCircle, AlertTriangle, X } from 'lucide-react';
 import { ApiError } from '../api/client';
 
 export const ReminderModal: React.FC = () => {
@@ -13,7 +13,17 @@ export const ReminderModal: React.FC = () => {
   const handleConfirm = async (coming: boolean) => {
     setLoading(true);
     try {
-      await bookingsApi.confirmArrival(activeReminder.bookingId, coming);
+      let bId = activeReminder.bookingId;
+      if (!bId) {
+        const res = await bookingsApi.getMyBookings();
+        const active = (res.bookings || []).find((b) => b.status === 'CONFIRMED');
+        if (active) bId = active.id;
+      }
+      if (!bId) {
+        setReminder(null);
+        return;
+      }
+      await bookingsApi.confirmArrival(bId, coming);
       if (coming) {
         addToast({
           type: 'success',
@@ -50,7 +60,14 @@ export const ReminderModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-navy-dark/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-center animate-scale-up">
+      <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 text-center animate-scale-up relative">
+        <button
+          onClick={() => setReminder(null)}
+          className="absolute top-4 right-4 p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100 transition-colors"
+          aria-label="Close"
+        >
+          <X className="w-4 h-4" />
+        </button>
         <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-bounce">
           <Clock className="w-8 h-8" />
         </div>

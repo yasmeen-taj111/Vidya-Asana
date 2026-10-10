@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Bell, Check, BookOpen, AlertCircle, Clock, Sparkles } from 'lucide-react';
+import { Bell, Check, BookOpen, AlertCircle, Clock, Sparkles, CheckCircle2, XCircle } from 'lucide-react';
 import { notificationsApi } from '../api/notifications';
+import { bookingsApi } from '../api/bookings';
+import { useUiStore } from '../store/uiStore';
 import { Notification } from '../api/types';
 import { getSocket } from '../realtime/socket';
 import { formatDistanceToNow } from 'date-fns';
@@ -121,40 +123,137 @@ export const NotificationBell: React.FC = () => {
                 No notifications yet
               </div>
             ) : (
-              notifications.map((n) => (
-                <div
-                  key={n.id}
-                  onClick={() => {
-                    if (!n.isRead) handleMarkAsRead(n.id);
-                    setIsOpen(false);
-                    if (n.type === 'WAITLIST_AVAILABLE') {
-                      navigate('/app/waitlist');
-                    } else if (n.type === 'BOOKING_CONFIRMED' || n.type === 'REMINDER') {
-                      navigate('/app/bookings');
-                    }
-                  }}
-                  className={`py-3 px-2 flex items-start gap-3 rounded-lg transition-colors cursor-pointer ${
-                    n.isRead ? 'opacity-70 hover:bg-slate-50' : 'bg-primary/5 hover:bg-primary/10'
-                  }`}
-                >
-                  <div className="p-2 rounded-xl bg-white shadow-sm border border-slate-100 shrink-0">
-                    {getIcon(n.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-sm font-semibold text-slate-900 truncate">
-                        {n.title}
-                      </p>
-                      <span className="text-[10px] text-slate-400 shrink-0">
-                        {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
-                      </span>
+              notifications.map((n) => {
+                const isReminder =
+                  n.type === 'REMINDER' ||
+                  n.title.toLowerCase().includes('are you coming') ||
+                  Boolean(n.data?.promptArrival);
+
+                return (
+                  <div
+                    key={n.id}
+                    onClick={async () => {
+                      if (!n.isRead) handleMarkAsRead(n.id);
+                      setIsOpen(false);
+                      if (n.type === 'WAITLIST_AVAILABLE') {
+                        navigate('/app/waitlist');
+                      } else if (isReminder) {
+                        let bookingId = (n.data?.bookingId as string) || '';
+                        if (!bookingId) {
+                          try {
+                            const res = await bookingsApi.getMyBookings();
+                            const active = (res.bookings || []).find((b) => b.status === 'CONFIRMED');
+                            if (active) bookingId = active.id;
+                          } catch {}
+                        }
+                        useUiStore.getState().setReminder({
+                          bookingId,
+                          message: n.body || 'Your slot has started. Are you coming or not for the slot?',
+                          graceUntil: (n.data?.graceUntil as string) || new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+                        });
+                      } else if (n.type === 'BOOKING_CONFIRMED' || n.type === 'BOOKING_CANCELLED' || n.type === 'NO_SHOW') {
+                        navigate('/app/bookings');
+                      }
+                    }}
+                    className={`py-3 px-2 flex items-start gap-3 rounded-lg transition-colors cursor-pointer ${
+                      n.isRead ? 'opacity-70 hover:bg-slate-50' : 'bg-primary/5 hover:bg-primary/10'
+                    }`}
+                  >
+                    <div className="p-2 rounded-xl bg-white shadow-sm border border-slate-100 shrink-0">
+                      {getIcon(n.type)}
                     </div>
-                    <p className="text-xs text-slate-600 mt-0.5 leading-relaxed line-clamp-2">
-                      {n.body}
-                    </p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-slate-900 truncate">
+                          {n.title}
+                        </p>
+                        <span className="text-[10px] text-slate-400 shrink-0">
+                          {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
+                        {n.body}
+                      </p>
+
+                      {isReminder && (
+                        <div className="flex items-center gap-2 mt-2 pt-2 border-t border-slate-100">
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              let bookingId = (n.data?.bookingId as string) || '';
+                              if (!bookingId) {
+                                try {
+                                  const res = await bookingsApi.getMyBookings();
+                                  const active = (res.bookings || []).find((b) => b.status === 'CONFIRMED');
+                                  if (active) bookingId = active.id;
+                                } catch {}
+                              }
+                              if (bookingId) {
+                                try {
+                                  await bookingsApi.confirmArrival(bookingId, true);
+                                  useUiStore.getState().addToast({
+                                    type: 'success',
+                                    title: '15-Minute Buffer Granted',
+                                    message: 'You have 15 minutes buffer wait time to arrive and scan your QR code.',
+                                  });
+                                  handleMarkAsRead(n.id);
+                                  setIsOpen(false);
+                                } catch (err: any) {
+                                  useUiStore.getState().addToast({
+                                    type: 'warning',
+                                    title: 'Action Notice',
+                                    message: err.message || 'Arrival status may already be updated.',
+                                  });
+                                }
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-primary hover:bg-primary-hover text-white text-[11px] font-bold shadow-sm flex items-center gap-1 transition-all"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" />
+                            Yes (+15m)
+                          </button>
+
+                          <button
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              let bookingId = (n.data?.bookingId as string) || '';
+                              if (!bookingId) {
+                                try {
+                                  const res = await bookingsApi.getMyBookings();
+                                  const active = (res.bookings || []).find((b) => b.status === 'CONFIRMED');
+                                  if (active) bookingId = active.id;
+                                } catch {}
+                              }
+                              if (bookingId) {
+                                try {
+                                  await bookingsApi.confirmArrival(bookingId, false);
+                                  useUiStore.getState().addToast({
+                                    type: 'info',
+                                    title: 'Slot Cancelled & Seat Released',
+                                    message: 'Your booking has been cancelled and seat released.',
+                                  });
+                                  handleMarkAsRead(n.id);
+                                  setIsOpen(false);
+                                } catch (err: any) {
+                                  useUiStore.getState().addToast({
+                                    type: 'error',
+                                    title: 'Action Failed',
+                                    message: err.message || 'Could not cancel booking.',
+                                  });
+                                }
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-600 text-slate-700 text-[11px] font-bold transition-all flex items-center gap-1"
+                          >
+                            <XCircle className="w-3.5 h-3.5" />
+                            No, cancel
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>

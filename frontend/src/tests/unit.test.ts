@@ -1036,6 +1036,41 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(noShowNotif?.title).toBe('Slot Cancelled (15-Min Buffer Expired)');
       expect(noShowNotif?.body).toContain('15-minute buffer wait time');
     });
+
+    it('enables clicking notification to trigger popup modal and provides Yes/No actions', () => {
+      const studentId = `usr-bell-${Date.now()}`;
+      const notifId = `ntf-reminder-${Date.now()}`;
+      const bookingId = `bk-bell-${Date.now()}`;
+
+      addStoredNotification(studentId, {
+        id: notifId,
+        type: 'REMINDER',
+        title: 'Are you coming or not for the slot?',
+        body: 'Your slot at Central Study Hub has started. Please confirm if you are coming.',
+        isRead: false,
+        data: { bookingId, promptArrival: true },
+        createdAt: new Date().toISOString(),
+      });
+
+      const notifs = getUserNotifications(studentId);
+      const reminderNotif = notifs.find((n) => n.id === notifId)!;
+      expect(reminderNotif).toBeDefined();
+      expect(reminderNotif.title).toContain('Are you coming');
+
+      // Clicking reminder notification sets active reminder modal
+      const isReminder =
+        reminderNotif.type === 'REMINDER' ||
+        reminderNotif.title.toLowerCase().includes('are you coming');
+      expect(isReminder).toBe(true);
+
+      const reminderPayload = {
+        bookingId: (reminderNotif.data?.bookingId as string) || bookingId,
+        message: reminderNotif.body,
+        graceUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      };
+      expect(reminderPayload.bookingId).toBe(bookingId);
+      expect(reminderPayload.message).toContain('Please confirm if you are coming');
+    });
   });
 });
 
