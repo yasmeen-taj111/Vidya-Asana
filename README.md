@@ -5,21 +5,21 @@
 
 ---
 
-## 🌟 Overview
+## Overview
 
 **Vidya Asana** is a comprehensive, production-ready library seat allocation and study productivity system designed for modern campuses and public reading rooms. It solves physical queues, unfair desk hogging, and no-shows with:
-- 🗺️ **Visual Floor Grid Editor & Booking Matrix** (desks, computer terminals, quiet pods, group pods)
-- ⚡ **Zero Double-Booking Guarantee** (MySQL generated column `active_key` constraint)
-- 🔄 **Intelligent Conflict Alternative Recommendations** (scored matching on natural light, quiet zones, outlets)
-- 🎟️ **HMAC-SHA256 Digital QR Passes & Scanner** with 30-minute grace window enforcement
-- ⏳ **Real-Time FIFO Waitlist Queue** with automatic 10-minute priority claiming window
-- ⏱️ **Integrated Pomodoro & Study Room** with daily streaks, focus consistency metrics, and leaderboards
-- 📊 **Administrator Analytics Hub** with live occupancy charts, walk-in management, and PDF/CSV audits
-- 🤖 **AsanaBot AI Study Assistant** with contextual quick actions
+- **Visual Floor Grid Editor & Booking Matrix** (desks, computer terminals, quiet pods, group pods)
+- **Zero Double-Booking Guarantee** (MySQL generated column `active_key` constraint)
+- **Intelligent Conflict Alternative Recommendations** (scored matching on natural light, quiet zones, outlets)
+- **HMAC-SHA256 Digital QR Passes & Scanner** with 30-minute grace window enforcement
+- **Real-Time FIFO Waitlist Queue** with automatic 10-minute priority claiming window
+- **Integrated Pomodoro & Study Room** with daily streaks, focus consistency metrics, and leaderboards
+- **Administrator Analytics Hub** with live occupancy charts, walk-in management, and PDF/CSV audits
+- **AsanaBot AI Study Assistant** with contextual quick actions
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 Vidya-Asana/
@@ -37,7 +37,7 @@ Vidya-Asana/
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ### 1. Frontend (Offline Demo Mode with Mock Service Worker)
 The frontend is pre-configured with MSW mock handlers matching the API contract fixtures. You can run and evaluate all roles immediately without setting up MySQL:
@@ -97,7 +97,7 @@ Backend will be available at:
 
 ---
 
-## 🔑 Demo Test Accounts
+## Demo Test Accounts
 
 | Role | Email | Password | Features Accessible |
 |---|---|---|---|
@@ -109,7 +109,7 @@ Backend will be available at:
 
 ---
 
-## 🧪 Running Automated Tests
+## Running Automated Tests
 
 ### Frontend Unit Tests (4 passing)
 ```bash
@@ -127,7 +127,7 @@ npm test
 
 ---
 
-## 🏆 Key Features Demonstrated
+## Key Features Demonstrated
 
 1. **Conflict Resolution & Alternative Desks**
    - When a desk is taken or conflict toggle is stimulated, the system prevents double-booking and returns up to 5 scored alternatives based on student preferences (window light, quiet zone, AC, power sockets).
