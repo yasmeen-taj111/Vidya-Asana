@@ -12,6 +12,8 @@ import {
   UserCheck,
   Clock,
   MapPin,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react';
 
 export const QRScanner: React.FC = () => {
@@ -25,6 +27,7 @@ export const QRScanner: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const { addToast } = useUiStore();
 
   const handleVerify = async (token: string) => {
@@ -100,6 +103,32 @@ export const QRScanner: React.FC = () => {
     setScanning(false);
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setLoading(true);
+      setErrorMsg(null);
+      const html5QrCode = new Html5Qrcode('qr-reader-file');
+      const decodedText = await html5QrCode.scanFile(file, false);
+      html5QrCode.clear();
+      handleVerify(decodedText);
+    } catch (err: any) {
+      console.warn('QR file scan error:', err);
+      setErrorMsg('No readable QR code found in this image. Please ensure the code is clear or use manual code entry.');
+      addToast({
+        type: 'warning',
+        title: 'Could Not Read QR',
+        message: 'No valid QR code found in the uploaded image.',
+      });
+    } finally {
+      setLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
   useEffect(() => {
     return () => {
       if (scannerRef.current) {
@@ -113,24 +142,43 @@ export const QRScanner: React.FC = () => {
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl text-center">
         <h3 className="text-xl font-bold text-slate-900 mb-1">QR Entry Scanner</h3>
         <p className="text-xs text-slate-500 mb-6">
-          Scan user entry QR codes with the camera or enter the reservation code.
+          Scan user entry QR passes with the camera, upload a saved pass, or enter the reservation code.
         </p>
+
+        {/* Hidden container for file-based scanner */}
+        <div id="qr-reader-file" className="hidden" />
+        <input
+          type="file"
+          ref={fileInputRef}
+          onChange={handleFileUpload}
+          accept="image/*"
+          className="hidden"
+        />
 
         {/* Camera Viewport Container */}
         <div className="relative mb-6 rounded-2xl overflow-hidden bg-slate-900 border border-slate-800 min-h-[260px] flex items-center justify-center">
           <div id="qr-reader" className="w-full h-full" />
 
           {!scanning && (
-            <div className="p-6 text-center text-slate-400 space-y-3">
+            <div className="p-6 text-center text-slate-400 space-y-4">
               <Camera className="w-12 h-12 mx-auto text-slate-500" />
               <p className="text-xs">Camera preview is currently inactive</p>
-              <button
-                type="button"
-                onClick={startCamera}
-                className="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md transition-all inline-flex items-center gap-2"
-              >
-                <Camera className="w-4 h-4" /> Start Camera
-              </button>
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <button
+                  type="button"
+                  onClick={startCamera}
+                  className="px-5 py-2.5 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md transition-all inline-flex items-center gap-2"
+                >
+                  <Camera className="w-4 h-4" /> Start Camera
+                </button>
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition-all inline-flex items-center gap-2"
+                >
+                  <Upload className="w-4 h-4" /> Upload QR Image
+                </button>
+              </div>
             </div>
           )}
 
@@ -194,7 +242,7 @@ export const QRScanner: React.FC = () => {
             <div>
               <span className="text-slate-400 block font-medium">Guest / Student:</span>
               <span className="font-bold text-slate-900">
-                {scanResult.booking.guestName || 'Aarav Patel'}
+                {scanResult.booking.guestName || 'Student'}
               </span>
             </div>
             <div>

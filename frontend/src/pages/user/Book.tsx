@@ -87,7 +87,13 @@ export const Book: React.FC = () => {
           { id: 'slot-night', libraryId: lib.id, name: 'NIGHT' as const, startTime: '21:00', endTime: '23:59', isFree: !!lib.isFree, pricePaise: lib.isFree ? 0 : 8000, isActive: true },
         ];
         setSlots(finalSlots);
-        if (finalSlots.length > 0) setSelectedSlot(finalSlots[0]);
+        const todayStr = format(new Date(), 'yyyy-MM-dd');
+        const now = new Date();
+        const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        const activeOrUpcoming = finalSlots.find((s) => s.endTime > curTime);
+        if (finalSlots.length > 0) {
+          setSelectedSlot(activeOrUpcoming || finalSlots[0]);
+        }
         setFloors(floorList);
         if (floorList.length > 0) setActiveFloorId(floorList[0].id);
       })
@@ -105,6 +111,30 @@ export const Book: React.FC = () => {
         console.warn('[Book] Could not load upcoming bookings:', err);
       });
   }, []);
+
+  const isSlotPastToday = (slot: TimeSlot) => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (selectedDate !== todayStr) return false;
+    const now = new Date();
+    const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    return slot.endTime <= curTime;
+  };
+
+  const handleSelectDate = (d: string) => {
+    setSelectedDate(d);
+    setSelectedSeat(null);
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (d === todayStr) {
+      const now = new Date();
+      const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (!selectedSlot || selectedSlot.endTime <= curTime) {
+        const upcomingSlot = slots.find((s) => s.endTime > curTime);
+        if (upcomingSlot) {
+          setSelectedSlot(upcomingSlot);
+        }
+      }
+    }
+  };
 
   const getSlotReservation = (slotId: string) => {
     return userBookings.find(
@@ -182,7 +212,7 @@ export const Book: React.FC = () => {
 
     setSubmitting(true);
     try {
-      const idempotencyKey = `bk-${selectedSeat.id}-${selectedDate}-${selectedSlot.id}-${Date.now()}`;
+      const idempotencyKey = `bk-${selectedSeat.id.slice(-8)}-${selectedDate}-${selectedSlot.id.slice(-8)}-${Date.now()}`;
       const booking = await bookingsApi.createBooking(
         {
           libraryId,
@@ -307,10 +337,7 @@ export const Book: React.FC = () => {
               {availableDates.map((d) => (
                 <button
                   key={d}
-                  onClick={() => {
-                    setSelectedDate(d);
-                    setSelectedSeat(null);
-                  }}
+                  onClick={() => handleSelectDate(d)}
                   className={`p-3 rounded-2xl border text-center min-w-[5.5rem] transition-all flex flex-col items-center justify-center ${
                     selectedDate === d
                       ? 'border-primary bg-primary text-white shadow-md shadow-primary/25 font-bold scale-105'
@@ -343,16 +370,21 @@ export const Book: React.FC = () => {
               {slots.map((s) => {
                 const isSelected = selectedSlot?.id === s.id;
                 const existingRes = getSlotReservation(s.id);
+                const isPast = isSlotPastToday(s);
 
                 return (
                   <button
                     key={s.id}
+                    disabled={isPast}
                     onClick={() => {
+                      if (isPast) return;
                       setSelectedSlot(s);
                       setSelectedSeat(null);
                     }}
                     className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between space-y-3 relative ${
-                      isSelected
+                      isPast
+                        ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
+                        : isSelected
                         ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm font-semibold'
                         : existingRes
                         ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-50 text-slate-700'
@@ -361,8 +393,12 @@ export const Book: React.FC = () => {
                   >
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-slate-900">{s.name}</span>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100">
-                        {s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isPast
+                          ? 'bg-slate-200 text-slate-500'
+                          : 'bg-slate-100'
+                      }`}>
+                        {isPast ? 'Ended' : s.isFree ? 'Free' : `₹${(s.pricePaise / 100).toFixed(0)}`}
                       </span>
                     </div>
                     <div className="text-base font-black text-navy font-mono">
@@ -377,6 +413,24 @@ export const Book: React.FC = () => {
                 );
               })}
             </div>
+
+            {selectedDate === format(new Date(), 'yyyy-MM-dd') && slots.length > 0 && slots.every((s) => isSlotPastToday(s)) && (
+              <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex items-center gap-2.5 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  All study slots for today have ended. Please select tomorrow or an upcoming date above to reserve a desk.
+                </span>
+              </div>
+            )}
+
+            {selectedSlot && isSlotPastToday(selectedSlot) && !(slots.length > 0 && slots.every((s) => isSlotPastToday(s))) && (
+              <div className="mt-4 p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2.5 animate-fade-in">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>
+                  The selected {selectedSlot.name} slot has already ended for today. Please select an active or upcoming slot.
+                </span>
+              </div>
+            )}
 
             {selectedSlot && getSlotReservation(selectedSlot.id) && (
               <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-fade-in">
@@ -401,7 +455,7 @@ export const Book: React.FC = () => {
           <div className="flex justify-end pt-4 border-t border-slate-100">
             <button
               onClick={() => setStep(2)}
-              disabled={!selectedSlot || Boolean(getSlotReservation(selectedSlot?.id || ''))}
+              disabled={!selectedSlot || Boolean(getSlotReservation(selectedSlot?.id || '')) || isSlotPastToday(selectedSlot)}
               className="px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-lg shadow-primary/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <span>Continue to Seat Selection</span>

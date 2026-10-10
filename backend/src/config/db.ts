@@ -18,7 +18,7 @@ export const pool = mysql.createPool({
 // Without this, NOW() returns IST while the driver sends UTC — causing a 5.5 hr
 // offset on TIMESTAMP columns like grace_until, which makes the no-show cron
 // immediately expire every new booking.
-pool.on('connection', (connection) => {
+pool.on('connection', (connection: any) => {
   connection.query("SET time_zone = '+00:00'");
 });
 
@@ -35,6 +35,12 @@ export async function execute(sql: string, params: any[] = []): Promise<mysql.Re
 export async function testDbConnection(): Promise<boolean> {
   try {
     const conn = await pool.getConnection();
+    await conn.query("SET time_zone = '+00:00'");
+    try {
+      await conn.query("SET GLOBAL time_zone = '+00:00'");
+    } catch (e) {
+      // Non-fatal if user lacks SUPER/SYSTEM_VARIABLES_ADMIN privileges
+    }
     await conn.ping();
     conn.release();
     return true;

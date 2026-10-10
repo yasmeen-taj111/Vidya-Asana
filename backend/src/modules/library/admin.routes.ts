@@ -9,6 +9,7 @@ import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { verifyQrToken } from '../../utils/qr';
 import { notifyNextInWaitlist } from '../waitlist/service';
 import { emitSeatUpdated } from '../../realtime/socket';
+import { createNotification } from '../notifications/service';
 import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
 
@@ -742,7 +743,8 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
     const { qrToken } = req.body;
     if (!qrToken) throw new AppError('BAD_REQUEST', 'QR Token required', 400);
 
-    const verified = verifyQrToken(qrToken);
+    const tokenClean = String(qrToken).trim();
+    const verified = verifyQrToken(tokenClean);
     let bookingId = '';
 
     if (verified) {
@@ -751,27 +753,34 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
       }
       bookingId = verified.bookingId;
     } else {
-      // Allow searching by human booking code fallback
-      const [byCode] = await query('SELECT id FROM bookings WHERE code = ? AND library_id = ?', [qrToken.trim().toUpperCase(), req.user!.libraryId]);
+      // Allow searching by human booking code (case-insensitive) or UUID fallback
+      const [byCode] = await query(
+        'SELECT id FROM bookings WHERE (UPPER(code) = ? OR id = ?) AND library_id = ?',
+        [tokenClean.toUpperCase(), tokenClean, req.user!.libraryId]
+      );
       if (byCode) {
         bookingId = byCode.id;
       } else {
-        throw new AppError('NOT_FOUND', 'Invalid or unverified reservation token', 404);
+        throw new AppError('NOT_FOUND', 'Invalid or unverified reservation pass or code', 404);
       }
     }
 
     const [bookingRow] = await query(`
       SELECT b.*, l.name as library_name, s.label as seat_label, s.seat_type, s.facing, f.label as floor_label,
-             ts.name as slot_name, ts.start_time, ts.end_time, ts.is_free, ts.price_paise
+             ts.name as slot_name, ts.start_time, ts.end_time, ts.is_free, ts.price_paise,
+             u.name as user_name, u.email as user_email
       FROM bookings b
       JOIN libraries l ON b.library_id = l.id
       JOIN seats s ON b.seat_id = s.id
       JOIN floors f ON s.floor_id = f.id
       JOIN time_slots ts ON b.slot_id = ts.id
+      LEFT JOIN users u ON b.user_id = u.id
       WHERE b.id = ?
     `, [bookingId]);
 
     if (!bookingRow) throw new AppError('NOT_FOUND', 'Booking record not found', 404);
+
+    const guestDisplayName = bookingRow.guest_name || bookingRow.user_name || 'Student';
 
     if (bookingRow.status === 'CHECKED_IN') {
       return sendSuccess(res, {
@@ -782,6 +791,7 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
           floorLabel: bookingRow.floor_label,
           slot: { name: bookingRow.slot_name, startTime: bookingRow.start_time, endTime: bookingRow.end_time },
           status: 'CHECKED_IN',
+          guestName: guestDisplayName,
         },
         result: 'ALREADY_CHECKED_IN',
       });
@@ -793,6 +803,23 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
 
     await execute('UPDATE bookings SET status = "CHECKED_IN", checked_in_at = NOW(), arrival_confirmed = 1 WHERE id = ?', [bookingId]);
 
+    // Realtime broadcast to library floor grid
+    const dateStr = typeof bookingRow.booking_date === 'string'
+      ? bookingRow.booking_date.substring(0, 10)
+      : new Date(bookingRow.booking_date).toISOString().substring(0, 10);
+    emitSeatUpdated(bookingRow.library_id, bookingRow.seat_id, bookingRow.slot_id, dateStr, 'OCCUPIED');
+
+    // Notify student of successful check-in
+    if (bookingRow.user_id) {
+      createNotification({
+        userId: bookingRow.user_id,
+        type: 'SYSTEM',
+        title: 'Checked In Successfully! 🎒',
+        body: `Welcome to ${bookingRow.library_name}. Seat ${bookingRow.seat_label} is confirmed and active. Happy studying!`,
+        data: { bookingId: bookingRow.id },
+      }).catch((e) => console.error('[Notification error on check-in]:', e));
+    }
+
     sendSuccess(res, {
       booking: {
         id: bookingRow.id,
@@ -801,6 +828,7 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
         floorLabel: bookingRow.floor_label,
         slot: { name: bookingRow.slot_name, startTime: bookingRow.start_time, endTime: bookingRow.end_time },
         status: 'CHECKED_IN',
+        guestName: guestDisplayName,
       },
       result: 'CHECKED_IN',
     });
