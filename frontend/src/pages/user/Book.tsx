@@ -80,8 +80,14 @@ export const Book: React.FC = () => {
     ])
       .then(([lib, slotList, floorList]) => {
         setLibrary(lib);
-        setSlots(slotList);
-        if (slotList.length > 0) setSelectedSlot(slotList[0]);
+        let finalSlots = slotList && slotList.length > 0 ? slotList : [
+          { id: 'slot-morning', libraryId: lib.id, name: 'MORNING' as const, startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
+          { id: 'slot-afternoon', libraryId: lib.id, name: 'AFTERNOON' as const, startTime: '12:00', endTime: '17:00', isFree: !!lib.isFree, pricePaise: lib.isFree ? 0 : 5000, isActive: true },
+          { id: 'slot-evening', libraryId: lib.id, name: 'EVENING' as const, startTime: '17:00', endTime: '21:00', isFree: !!lib.isFree, pricePaise: lib.isFree ? 0 : 6000, isActive: true },
+          { id: 'slot-night', libraryId: lib.id, name: 'NIGHT' as const, startTime: '21:00', endTime: '23:59', isFree: !!lib.isFree, pricePaise: lib.isFree ? 0 : 8000, isActive: true },
+        ];
+        setSlots(finalSlots);
+        if (finalSlots.length > 0) setSelectedSlot(finalSlots[0]);
         setFloors(floorList);
         if (floorList.length > 0) setActiveFloorId(floorList[0].id);
       })

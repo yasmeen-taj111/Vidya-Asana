@@ -5,6 +5,7 @@ import { query, execute } from '../../config/db';
 import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/errors';
 import { sendMail } from '../../config/mailer';
+import { ensureLibraryDefaults } from '../library/initLibrary';
 
 export const ownerRouter = Router();
 
@@ -130,6 +131,7 @@ ownerRouter.post('/libraries/:id/approve', async (req, res, next) => {
     }
 
     await execute('UPDATE libraries SET status = "APPROVED", rejection_reason = NULL WHERE id = ?', [req.params.id]);
+    await ensureLibraryDefaults(req.params.id);
 
     const updated = await query('SELECT * FROM libraries WHERE id = ?', [req.params.id]);
     const library = mapLibraryRow(updated[0]);
