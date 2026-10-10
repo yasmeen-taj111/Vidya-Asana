@@ -1,0 +1,37 @@
+import mysql from 'mysql2/promise';
+import { env } from './env';
+
+export const pool = mysql.createPool({
+  host: env.DB_HOST,
+  port: env.DB_PORT,
+  user: env.DB_USER,
+  password: env.DB_PASSWORD,
+  database: env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 15,
+  queueLimit: 0,
+  decimalNumbers: true,
+  timezone: '+00:00',
+});
+
+export async function query<T = any>(sql: string, params: any[] = []): Promise<T> {
+  const [rows] = await pool.query(sql, params);
+  return rows as unknown as T;
+}
+
+export async function execute(sql: string, params: any[] = []): Promise<mysql.ResultSetHeader> {
+  const [result] = await pool.execute(sql, params);
+  return result as mysql.ResultSetHeader;
+}
+
+export async function testDbConnection(): Promise<boolean> {
+  try {
+    const conn = await pool.getConnection();
+    await conn.ping();
+    conn.release();
+    return true;
+  } catch (err: any) {
+    console.warn(`[DB WARNING] Could not connect to MySQL (${err.code || err.message}). Please verify MySQL service is running.`);
+    return false;
+  }
+}

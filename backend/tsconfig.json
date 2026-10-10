@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "rootDir": "./",
+    "outDir": "./dist",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "noImplicitAny": false,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src/**/*", "db/**/*", "tests/**/*"]
+}

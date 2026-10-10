@@ -1,0 +1,52 @@
+{
+  "name": "vidya-asana-backend",
+  "version": "1.0.0",
+  "private": true,
+  "main": "dist/src/server.js",
+  "scripts": {
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
+    "build": "tsc",
+    "start": "node dist/src/server.js",
+    "db:init": "ts-node db/init.ts",
+    "seed": "ts-node db/seed.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.0",
+    "helmet": "^7.1.0",
+    "json2csv": "^6.0.0-alpha.2",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.11.3",
+    "node-cron": "^3.0.3",
+    "nodemailer": "^6.9.15",
+    "pdfkit": "^0.15.0",
+    "pino": "^9.4.0",
+    "qrcode": "^1.5.4",
+    "socket.io": "^4.7.5",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/cookie-parser": "^1.4.7",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^4.17.21",
+    "@types/jsonwebtoken": "^9.0.7",
+    "@types/node": "^22.5.5",
+    "@types/node-cron": "^3.0.11",
+    "@types/nodemailer": "^6.4.15",
+    "@types/pdfkit": "^0.13.5",
+    "@types/qrcode": "^1.5.5",
+    "@types/supertest": "^6.0.2",
+    "pino-pretty": "^11.2.2",
+    "supertest": "^7.0.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.5.3",
+    "vitest": "^2.1.1"
+  }
+}
