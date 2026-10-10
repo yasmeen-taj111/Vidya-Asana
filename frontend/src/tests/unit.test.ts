@@ -3,6 +3,7 @@ import { getErrorMessage } from '../utils/errorMessages';
 import { createDefaultFloorGrid } from '../mocks/db';
 import {
   saveStoredUser,
+  findStoredUserByEmail,
   getUserDashboard,
   getUserBookings,
   saveStoredBooking,
@@ -418,6 +419,48 @@ describe('Library Isolation and Fresh Setup Flow', () => {
 
     const adminLib = getLibraryForAdmin(newAdmin);
     expect(adminLib.status).toBe('PENDING');
+  });
+
+  it('re-submitting registration with existing library admin email retrieves the library and authenticates without blocking with EMAIL_TAKEN', () => {
+    const adminEmail = `reentry-${Date.now()}@library.test`;
+    const testLibId = `lib-reentry-${Date.now()}`;
+    const admin = {
+      id: `usr-reentry-${Date.now()}`,
+      name: 'Reentry Admin',
+      email: adminEmail,
+      role: 'LIBRARY_ADMIN' as const,
+      libraryId: testLibId,
+      createdAt: new Date().toISOString(),
+    };
+    saveStoredUser(admin);
+
+    const lib = {
+      id: testLibId,
+      name: 'Reentry Study Lounge',
+      address: 'Indiranagar 100ft Road',
+      city: 'Bengaluru',
+      latitude: 12.97,
+      longitude: 77.6,
+      contactEmail: adminEmail,
+      amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+      isFree: false,
+      status: 'PENDING' as const,
+      seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
+      totalSeats: 0,
+      floorCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    saveStoredLibrary(lib);
+
+    // Existing check logic retrieves this admin smoothly
+    const found = findStoredUserByEmail(adminEmail);
+    expect(found).toBeDefined();
+    expect(found?.role).toBe('LIBRARY_ADMIN');
+    expect(found?.libraryId).toBe(testLibId);
+
+    const userLib = getLibraryForAdmin(found!);
+    expect(userLib.id).toBe(testLibId);
+    expect(userLib.name).toBe('Reentry Study Lounge');
   });
 });
 

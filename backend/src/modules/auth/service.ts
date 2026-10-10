@@ -42,9 +42,28 @@ export const authService = {
   },
 
   async registerLibrary(adminData: any, libData: any) {
-    const existing = await query('SELECT id FROM users WHERE email = ?', [adminData.email.toLowerCase()]);
+    const existing = await query('SELECT * FROM users WHERE email = ?', [adminData.email.toLowerCase()]);
     if (existing.length > 0) {
-      throw new AppError('EMAIL_TAKEN', 'An account with this email address already exists.', 409);
+      const userRow = existing[0];
+      if (userRow.role === 'LIBRARY_ADMIN') {
+        const match = await bcrypt.compare(adminData.password, userRow.password_hash);
+        if (match) {
+          const user = {
+            id: userRow.id,
+            name: userRow.name,
+            email: userRow.email,
+            role: userRow.role,
+            phone: userRow.phone,
+            libraryId: userRow.library_id,
+            createdAt: userRow.created_at,
+          };
+          const libs = await query('SELECT * FROM libraries WHERE id = ?', [userRow.library_id]);
+          const library = libs[0] || null;
+          const tokens = this.generateTokens(user);
+          return { user, library, ...tokens };
+        }
+      }
+      throw new AppError('EMAIL_TAKEN', 'An account with this email address already exists. Please sign in or use another email.', 409);
     }
 
     const userId = generateUUID();

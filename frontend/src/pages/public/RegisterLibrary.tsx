@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { authApi } from '../../api/auth';
@@ -55,9 +55,16 @@ export const RegisterLibrary: React.FC = () => {
   const [powerOutlets, setPowerOutlets] = useState(true);
   const [isFree, setIsFree] = useState(false);
 
-  const { setAuth } = useAuthStore();
+  const { user, isAuthenticated, setAuth } = useAuthStore();
   const { addToast } = useUiStore();
   const navigate = useNavigate();
+
+  // If already authenticated as library admin, redirect directly to /admin
+  useEffect(() => {
+    if (isAuthenticated && user?.role === 'LIBRARY_ADMIN') {
+      navigate('/admin', { replace: true });
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleNext = () => {
     if (step === 1) {
@@ -67,6 +74,19 @@ export const RegisterLibrary: React.FC = () => {
       }
       if (adminPassword.length < 8) {
         addToast({ type: 'warning', title: 'Weak Password', message: 'Password must be at least 8 characters.' });
+        return;
+      }
+
+      // If user is already registered as a library admin, smoothly log them in
+      const existing = findStoredUserByEmail(adminEmail);
+      if (existing && existing.role === 'LIBRARY_ADMIN') {
+        setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Welcome Back!',
+          message: 'Found your registered library account. Redirecting to your dashboard...',
+        });
+        navigate('/admin');
         return;
       }
     } else if (step === 2) {
@@ -118,6 +138,30 @@ export const RegisterLibrary: React.FC = () => {
       });
       navigate('/admin');
     } catch (err: any) {
+      // 1. If user is already registered as a library admin, smoothly log them in to their dashboard
+      const existing = findStoredUserByEmail(adminEmail);
+      if (existing && existing.role === 'LIBRARY_ADMIN') {
+        setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Welcome Back!',
+          message: 'Found your registered library account. Redirecting to your dashboard...',
+        });
+        navigate('/admin');
+        return;
+      }
+
+      // 2. If email belongs to an existing student user
+      if (existing && existing.role === 'USER') {
+        addToast({
+          type: 'warning',
+          title: 'Account Already Exists',
+          message: 'This email is already registered as a student account. Please sign in or use a different email for your library.',
+        });
+        setLoading(false);
+        return;
+      }
+
       const isNetworkError =
         err?.message === 'Network Error' ||
         err?.name === 'AxiosError' ||
@@ -125,16 +169,6 @@ export const RegisterLibrary: React.FC = () => {
 
       // If network is unreachable while in mock mode, complete registration directly into storage
       if (isNetworkError && import.meta.env.VITE_USE_MOCKS === 'true') {
-        const existing = findStoredUserByEmail(adminEmail);
-        if (existing) {
-          addToast({
-            type: 'error',
-            title: 'Registration Error',
-            message: 'An account with this email address already exists.',
-          });
-          setLoading(false);
-          return;
-        }
 
         const libId = `lib-${Date.now()}`;
         const newAdmin = {

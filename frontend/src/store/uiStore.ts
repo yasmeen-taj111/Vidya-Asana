@@ -22,7 +22,14 @@ export const useUiStore = create<UiState>((set) => ({
   toasts: [],
   addToast: (toast) => {
     const id = Math.random().toString(36).substring(2, 9);
-    set((state) => ({ toasts: [...state.toasts, { ...toast, id }] }));
+    set((state) => {
+      const isDuplicate = state.toasts.some(
+        (t) => t.title === toast.title && t.message === toast.message
+      );
+      if (isDuplicate) return state;
+      const trimmed = state.toasts.length >= 3 ? state.toasts.slice(state.toasts.length - 2) : state.toasts;
+      return { toasts: [...trimmed, { ...toast, id }] };
+    });
     setTimeout(() => {
       set((state) => ({ toasts: state.toasts.filter((t) => t.id !== id) }));
     }, 4500);
