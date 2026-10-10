@@ -27,7 +27,14 @@ import {
   Shield,
   Zap,
   Lock,
+  Search,
+  Loader2,
+  Navigation,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
+import { LocationPickerMap } from '../../components/Map/LocationPickerMap';
+import { geocodeAddress } from '../../utils/geocoding';
 
 export const RegisterLibrary: React.FC = () => {
   const [step, setStep] = useState(1);
@@ -39,13 +46,20 @@ export const RegisterLibrary: React.FC = () => {
   const [adminPassword, setAdminPassword] = useState('');
   const [adminPhone, setAdminPhone] = useState('');
 
-  // Step 2: Library details
+  // Step 2: Library & Location details
   const [libName, setLibName] = useState('');
   const [description, setDescription] = useState('');
-  const [address, setAddress] = useState('');
+  const [streetAddress, setStreetAddress] = useState('');
+  const [landmark, setLandmark] = useState('');
   const [city, setCity] = useState('Bengaluru');
+  const [state, setState] = useState('Karnataka');
+  const [postalCode, setPostalCode] = useState('560001');
+  const [country, setCountry] = useState('India');
   const [latitude, setLatitude] = useState(12.9716);
   const [longitude, setLongitude] = useState(77.5946);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodedLabel, setGeocodedLabel] = useState<string | null>(null);
+  const [showManualCoords, setShowManualCoords] = useState(false);
 
   // Step 3: Amenities & Pricing
   const [lockers, setLockers] = useState(true);
@@ -65,6 +79,49 @@ export const RegisterLibrary: React.FC = () => {
       navigate('/admin', { replace: true });
     }
   }, [isAuthenticated, user, navigate]);
+
+  const handleAutoGeocode = async (silent = false) => {
+    const fullQuery = [streetAddress, landmark, city, state, postalCode, country].filter(Boolean).join(', ');
+    if (!fullQuery.trim()) {
+      if (!silent) {
+        addToast({ type: 'warning', title: 'Location Information Needed', message: 'Please enter street address or city first.' });
+      }
+      return;
+    }
+
+    setIsGeocoding(true);
+    try {
+      const res = await geocodeAddress(fullQuery, {
+        city,
+        state,
+        postalCode,
+        country,
+      });
+
+      if (res) {
+        setLatitude(res.lat);
+        setLongitude(res.lng);
+        setGeocodedLabel(res.displayName);
+        if (!silent) {
+          addToast({
+            type: 'success',
+            title: 'Coordinates Extracted!',
+            message: `Extracted GPS: ${res.lat.toFixed(5)}, ${res.lng.toFixed(5)}`,
+          });
+        }
+      } else if (!silent) {
+        addToast({
+          type: 'warning',
+          title: 'Location Notice',
+          message: 'Could not pinpoint exact street. You can click or drag the marker directly on the map.',
+        });
+      }
+    } catch (err) {
+      console.warn('[RegisterLibrary] Geocoding error:', err);
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
 
   const handleNext = () => {
     if (step === 1) {
@@ -90,17 +147,35 @@ export const RegisterLibrary: React.FC = () => {
         return;
       }
     } else if (step === 2) {
-      if (!libName || !address || !city) {
-        addToast({ type: 'warning', title: 'Missing fields', message: 'Please provide library name, address and city.' });
+      if (!libName || !streetAddress || !city) {
+        addToast({ type: 'warning', title: 'Missing fields', message: 'Please provide library name, street address and city.' });
         return;
+      }
+      // If coordinates are unchanged default, auto-geocode in background
+      if (latitude === 12.9716 && longitude === 77.5946) {
+        handleAutoGeocode(true);
       }
     }
     setStep((s) => s + 1);
   };
 
+  const getFullFormattedAddress = () => {
+    const locParts = [
+      streetAddress,
+      landmark,
+      city,
+      state,
+      postalCode ? `${postalCode}` : '',
+      country,
+    ].filter(Boolean);
+    return locParts.join(', ');
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
+    const fullAddress = getFullFormattedAddress();
 
     try {
       const data = await authApi.registerLibrary({
@@ -113,7 +188,7 @@ export const RegisterLibrary: React.FC = () => {
         library: {
           name: libName,
           description,
-          address,
+          address: fullAddress,
           city,
           latitude,
           longitude,
@@ -186,7 +261,7 @@ export const RegisterLibrary: React.FC = () => {
           id: libId,
           name: libName,
           description: description || undefined,
-          address,
+          address: fullAddress,
           city,
           latitude,
           longitude,
@@ -381,60 +456,171 @@ export const RegisterLibrary: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Street Address</label>
+              {/* Detailed Location Fields */}
+              <div className="space-y-3 pt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Street Address / Building Name <span className="text-rose-500">*</span>
+                  </label>
                   <input
                     type="text"
                     required
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="42 MG Road, Ashok Nagar"
+                    value={streetAddress}
+                    onChange={(e) => setStreetAddress(e.target.value)}
+                    placeholder="e.g. 42 Mahatma Gandhi Road, Building 3"
                     className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
-                  <input
-                    type="text"
-                    required
-                    value={city}
-                    onChange={(e) => setCity(e.target.value)}
-                    placeholder="Bengaluru"
-                    className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
-                  />
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Area / Landmark / Locality
+                    </label>
+                    <input
+                      type="text"
+                      value={landmark}
+                      onChange={(e) => setLandmark(e.target.value)}
+                      placeholder="e.g. Ashok Nagar, Near Trinity Metro"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      City <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      placeholder="e.g. Bengaluru"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">State</label>
+                    <input
+                      type="text"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      placeholder="Karnataka"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">PIN / Postal Code</label>
+                    <input
+                      type="text"
+                      value={postalCode}
+                      onChange={(e) => setPostalCode(e.target.value)}
+                      placeholder="560001"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Country</label>
+                    <input
+                      type="text"
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      placeholder="India"
+                      className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
-                <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
-                  <MapPin className="w-4 h-4 text-primary" /> Geographic Coordinates (Lat / Lng)
-                </span>
-                <p className="text-[11px] text-slate-500">
-                  Used for GPS-based nearby library discovery on student maps.
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <span className="text-[11px] text-slate-500">Latitude:</span>
-                    <input
-                      type="number"
-                      step="any"
-                      value={latitude}
-                      onChange={(e) => setLatitude(parseFloat(e.target.value) || 12.9716)}
-                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-                    />
-                  </div>
-                  <div>
-                    <span className="text-[11px] text-slate-500">Longitude:</span>
-                    <input
-                      type="number"
-                      step="any"
-                      value={longitude}
-                      onChange={(e) => setLongitude(parseFloat(e.target.value) || 77.5946)}
-                      className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white"
-                    />
-                  </div>
+              {/* Geocoding Action Header & Live Coordinates Status */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 pt-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-[11px] font-bold text-slate-800">
+                    GPS Coordinates:
+                  </span>
+                  <span className="text-[11px] font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-md border border-emerald-200/80">
+                    {latitude.toFixed(5)}, {longitude.toFixed(5)}
+                  </span>
                 </div>
+
+                <button
+                  type="button"
+                  onClick={() => handleAutoGeocode(false)}
+                  disabled={isGeocoding}
+                  className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-bold shadow-xs transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isGeocoding ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Extracting Coordinates...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5 text-accent" />
+                      <span>Auto-Detect GPS from Address</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Geocoded Address Preview if Available */}
+              {geocodedLabel && (
+                <div className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200/80 rounded-xl px-3 py-2 flex items-start gap-2">
+                  <MapPin className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                  <span className="line-clamp-2">{geocodedLabel}</span>
+                </div>
+              )}
+
+              {/* Interactive Location Picker Map */}
+              <LocationPickerMap
+                latitude={latitude}
+                longitude={longitude}
+                onChange={(lat, lng) => {
+                  setLatitude(lat);
+                  setLongitude(lng);
+                  setGeocodedLabel(`Fine-tuned GPS Marker: ${lat.toFixed(5)}, ${lng.toFixed(5)}`);
+                }}
+                libraryName={libName || 'Library Entrance'}
+              />
+
+              {/* Advanced Manual Coordinates Toggle */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowManualCoords(!showManualCoords)}
+                  className="text-[11px] font-semibold text-slate-500 hover:text-slate-800 flex items-center gap-1 transition-colors"
+                >
+                  {showManualCoords ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                  <span>{showManualCoords ? 'Hide Manual Coordinate Override' : 'Manual Coordinates Override (Advanced)'}</span>
+                </button>
+
+                {showManualCoords && (
+                  <div className="grid grid-cols-2 gap-2 mt-2 p-3 bg-slate-50 rounded-xl border border-slate-200 animate-fade-in">
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Latitude:</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={latitude}
+                        onChange={(e) => setLatitude(parseFloat(e.target.value) || 12.9716)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-mono"
+                      />
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-500 font-bold block mb-0.5">Longitude:</span>
+                      <input
+                        type="number"
+                        step="any"
+                        value={longitude}
+                        onChange={(e) => setLongitude(parseFloat(e.target.value) || 77.5946)}
+                        className="w-full text-xs p-2 rounded-lg border border-slate-200 bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
