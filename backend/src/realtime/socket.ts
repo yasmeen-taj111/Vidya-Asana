@@ -33,6 +33,7 @@ export function initSocket(httpServer: HttpServer): Server {
       socket.join(`user:${user.id}`);
       if (user.libraryId) {
         socket.join(`admin:library:${user.libraryId}`);
+        socket.join(`library:${user.libraryId}`);
       }
     }
 
@@ -68,13 +69,15 @@ export function emitSeatUpdated(
   status: string
 ) {
   if (!io) return;
-  io.to(`library:${libraryId}`).emit('seat:updated', {
+  const payload = {
     libraryId,
     seatId,
     slotId,
     date,
     status,
-  });
+  };
+  io.to(`library:${libraryId}`).emit('seat:updated', payload);
+  io.to(`admin:library:${libraryId}`).emit('seat:updated', payload);
 }
 
 export function emitBookingReminder(
@@ -104,6 +107,21 @@ export function emitWaitlistAvailable(
 export function emitBookingCheckedIn(libraryId: string, booking: any) {
   if (!io) return;
   io.to(`admin:library:${libraryId}`).emit('booking:checked-in', { booking });
+  const uId = booking.userId || booking.user_id;
+  if (uId) {
+    io.to(`user:${uId}`).emit('booking:checked-in', { booking });
+  }
+}
+
+export function emitBookingUpdated(libraryId: string, booking: any) {
+  if (!io) return;
+  const payload = { booking };
+  io.to(`admin:library:${libraryId}`).emit('booking:updated', payload);
+  io.to(`library:${libraryId}`).emit('booking:updated', payload);
+  const uId = booking.userId || booking.user_id;
+  if (uId) {
+    io.to(`user:${uId}`).emit('booking:updated', payload);
+  }
 }
 
 export function emitNotification(userId: string, notification: any) {

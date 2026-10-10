@@ -3,13 +3,19 @@ import { adminApi } from '../../api/admin';
 import { AnalyticsSummary, AnalyticsTimeseriesPoint } from '../../api/types';
 import { AnalyticsCharts } from '../../components/charts/AnalyticsCharts';
 import { useUiStore } from '../../store/uiStore';
+import { useAuthStore } from '../../store/authStore';
+import { useRealtimeBookings } from '../../realtime/useRealtimeBookings';
+import { format, subDays, startOfMonth } from 'date-fns';
 import { BarChart2, Download, FileText, LayoutGrid, Layers, ArrowRight } from 'lucide-react';
 
 export const Analytics: React.FC = () => {
+  const { user } = useAuthStore();
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [timeseries, setTimeseries] = useState<AnalyticsTimeseriesPoint[]>([]);
-  const [fromDate, setFromDate] = useState('2026-10-01');
-  const [toDate, setToDate] = useState('2026-10-10');
+  const [fromDate, setFromDate] = useState(todayStr);
+  const [toDate, setToDate] = useState(todayStr);
   const [groupBy, setGroupBy] = useState<'day' | 'slot' | 'seatType'>('slot');
   const [selectedPeriod, setSelectedPeriod] = useState<'Today' | 'This Week' | 'This Month'>('Today');
   const [selectedFloorId, setSelectedFloorId] = useState<string>('all');
@@ -20,16 +26,17 @@ export const Analytics: React.FC = () => {
 
   const handlePeriodChange = (period: 'Today' | 'This Week' | 'This Month') => {
     setSelectedPeriod(period);
-    const todayStr = '2026-10-10';
+    const now = new Date();
     if (period === 'Today') {
-      setFromDate(todayStr);
-      setToDate(todayStr);
+      const todayFormatted = format(now, 'yyyy-MM-dd');
+      setFromDate(todayFormatted);
+      setToDate(todayFormatted);
     } else if (period === 'This Week') {
-      setFromDate('2026-10-04');
-      setToDate(todayStr);
+      setFromDate(format(subDays(now, 6), 'yyyy-MM-dd'));
+      setToDate(format(now, 'yyyy-MM-dd'));
     } else if (period === 'This Month') {
-      setFromDate('2026-10-01');
-      setToDate(todayStr);
+      setFromDate(format(startOfMonth(now), 'yyyy-MM-dd'));
+      setToDate(format(now, 'yyyy-MM-dd'));
     }
   };
 
@@ -53,6 +60,8 @@ export const Analytics: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [fromDate, toDate, groupBy, selectedFloorId]);
+
+  useRealtimeBookings(loadData, user?.libraryId);
 
   const handleExport = async (format: 'csv' | 'pdf') => {
     setExporting(true);

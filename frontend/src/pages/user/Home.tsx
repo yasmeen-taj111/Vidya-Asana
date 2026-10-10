@@ -4,6 +4,7 @@ import { DashboardStats, Booking } from '../../api/types';
 import { useAuthStore } from '../../store/authStore';
 import { Link } from 'react-router-dom';
 import { QRCard } from '../../components/QRCard';
+import { useRealtimeBookings } from '../../realtime/useRealtimeBookings';
 import {
   Compass,
   Flame,
@@ -24,13 +25,19 @@ export const Home: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const { user } = useAuthStore();
 
-  useEffect(() => {
+  const loadDashboard = () => {
     studyApi
       .getDashboard()
       .then((res) => setData(res))
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadDashboard();
   }, []);
+
+  useRealtimeBookings(loadDashboard);
 
   return (
     <div className="space-y-8">

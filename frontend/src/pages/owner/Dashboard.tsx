@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ownerApi, OwnerStats } from '../../api/owner';
 import { Library, User } from '../../api/types';
 import { useUiStore } from '../../store/uiStore';
+import { useRealtimeBookings } from '../../realtime/useRealtimeBookings';
 import {
   Building,
   ShieldCheck,
@@ -50,6 +51,8 @@ export const OwnerDashboard: React.FC = () => {
   useEffect(() => {
     loadData();
   }, [filterStatus, searchQuery]);
+
+  useRealtimeBookings(loadData);
 
   const handleSelectLibrary = async (lib: Library) => {
     try {

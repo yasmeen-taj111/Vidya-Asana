@@ -3,6 +3,7 @@ import { bookingsApi } from '../../api/bookings';
 import { Booking } from '../../api/types';
 import { QRCard } from '../../components/QRCard';
 import { useUiStore } from '../../store/uiStore';
+import { useRealtimeBookings } from '../../realtime/useRealtimeBookings';
 import {
   CalendarCheck,
   QrCode,
@@ -31,6 +32,12 @@ export const MyBookings: React.FC = () => {
       setLoading(true);
       const res = await bookingsApi.getMyBookings();
       setBookings(res.bookings);
+      if (selectedQRBooking) {
+        const matching = res.bookings.find((b) => b.id === selectedQRBooking.booking.id);
+        if (matching) {
+          setSelectedQRBooking((prev) => (prev ? { ...prev, booking: matching } : null));
+        }
+      }
     } catch (err) {
       console.error(err);
     } finally {
@@ -41,6 +48,8 @@ export const MyBookings: React.FC = () => {
   useEffect(() => {
     loadBookings();
   }, []);
+
+  useRealtimeBookings(loadBookings);
 
   const handleShowQR = async (b: Booking) => {
     try {

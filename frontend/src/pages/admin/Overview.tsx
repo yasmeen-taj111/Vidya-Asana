@@ -14,13 +14,16 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { useAuthStore } from '../../store/authStore';
+import { useRealtimeBookings } from '../../realtime/useRealtimeBookings';
 
 export const Overview: React.FC = () => {
   const [summary, setSummary] = useState<AnalyticsSummary | null>(null);
   const [recentBookings, setRecentBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuthStore();
 
-  useEffect(() => {
+  const loadData = () => {
     Promise.all([adminApi.getAnalyticsSummary(), adminApi.getBookings({ page: 1 })])
       .then(([sData, bData]) => {
         setSummary(sData);
@@ -28,7 +31,14 @@ export const Overview: React.FC = () => {
       })
       .catch((err) => console.error(err))
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadData();
   }, []);
+
+  // Real-time synchronization for check-ins, bookings, and seat status changes
+  useRealtimeBookings(loadData, user?.libraryId);
 
   const pieData = summary
     ? [

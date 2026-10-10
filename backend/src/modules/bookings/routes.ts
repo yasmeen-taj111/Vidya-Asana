@@ -5,7 +5,7 @@ import { sendSuccess, sendError } from '../../utils/response';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { generateQrToken, generateQrDataUrl } from '../../utils/qr';
 import { scoreSeat } from '../../utils/scoring';
-import { emitSeatUpdated } from '../../realtime/socket';
+import { emitSeatUpdated, emitBookingUpdated } from '../../realtime/socket';
 import { createNotification } from '../notifications/service';
 import { notifyNextInWaitlist } from '../waitlist/service';
 
@@ -349,6 +349,7 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       [bookingId]
     );
     const booking = mapBookingRow(createdRows[0]);
+    emitBookingUpdated(libraryId, booking);
 
     // Send notification (non-fatal if notification delivery encounters issues)
     try {
@@ -523,7 +524,10 @@ bookingsRouter.post('/:id/cancel', authenticate, async (req, res, next) => {
     await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
 
     const updated = await query<any[]>(`${BOOKING_SELECT_SQL} WHERE b.id = ?`, [id]);
-    sendSuccess(res, mapBookingRow(updated[0]));
+    const mapped = mapBookingRow(updated[0]);
+    emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+    emitBookingUpdated(b.library_id, mapped);
+    sendSuccess(res, mapped);
   } catch (err) {
     next(err);
   }
@@ -556,7 +560,10 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
       );
       await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
       const updated = await query<any[]>(`${BOOKING_SELECT_SQL} WHERE b.id = ?`, [id]);
-      return sendSuccess(res, mapBookingRow(updated[0]));
+      const mapped = mapBookingRow(updated[0]);
+      emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+      emitBookingUpdated(b.library_id, mapped);
+      return sendSuccess(res, mapped);
     }
 
     // coming === true

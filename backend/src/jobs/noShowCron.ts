@@ -1,6 +1,6 @@
 import cron from 'node-cron';
 import { query } from '../config/db';
-import { emitBookingReminder, emitBookingReleased, emitSeatUpdated } from '../realtime/socket';
+import { emitBookingReminder, emitBookingReleased, emitSeatUpdated, emitBookingUpdated } from '../realtime/socket';
 import { createNotification } from '../modules/notifications/service';
 import { notifyNextInWaitlist } from '../modules/waitlist/service';
 import { sendMail } from '../config/mailer';
@@ -96,6 +96,7 @@ async function processNoShows() {
       bookingId: b.id,
       reason: 'NO_SHOW',
     });
+    emitBookingUpdated(b.library_id, { ...b, status: 'NO_SHOW' });
 
     await createNotification({
       userId: b.user_id,

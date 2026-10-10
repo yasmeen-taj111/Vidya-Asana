@@ -55,6 +55,14 @@ class MockSocket {
     });
   }
 
+  simulateBookingUpdate(booking: any) {
+    this.simulateEvent('booking:updated', { booking });
+  }
+
+  simulateCheckedIn(booking: any) {
+    this.simulateEvent('booking:checked-in', { booking });
+  }
+
   simulateReminder(bookingId: string) {
     const graceUntil = new Date(Date.now() + 30 * 60 * 1000).toISOString();
     this.simulateEvent('booking:reminder', {
@@ -89,6 +97,15 @@ export function getSocket(): Socket | MockSocket {
 
     realSocket.on('booking:reminder', (data: { bookingId: string; message: string; graceUntil: string }) => {
       useUiStore.getState().setReminder(data);
+    });
+
+    useAuthStore.subscribe((state) => {
+      if (realSocket) {
+        (realSocket as any).auth = { token: state.accessToken };
+        if (state.accessToken && !realSocket.connected) {
+          realSocket.connect();
+        }
+      }
     });
   }
 

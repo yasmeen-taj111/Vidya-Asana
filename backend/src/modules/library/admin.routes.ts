@@ -8,7 +8,7 @@ import { mapLibraryRow } from '../owner/routes';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { verifyQrToken } from '../../utils/qr';
 import { notifyNextInWaitlist } from '../waitlist/service';
-import { emitSeatUpdated } from '../../realtime/socket';
+import { emitSeatUpdated, emitBookingCheckedIn, emitBookingUpdated } from '../../realtime/socket';
 import { createNotification } from '../notifications/service';
 import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
@@ -808,6 +808,8 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
       ? bookingRow.booking_date.substring(0, 10)
       : new Date(bookingRow.booking_date).toISOString().substring(0, 10);
     emitSeatUpdated(bookingRow.library_id, bookingRow.seat_id, bookingRow.slot_id, dateStr, 'OCCUPIED');
+    emitBookingCheckedIn(bookingRow.library_id, { ...bookingRow, status: 'CHECKED_IN' });
+    emitBookingUpdated(bookingRow.library_id, { ...bookingRow, status: 'CHECKED_IN' });
 
     // Notify student of successful check-in
     if (bookingRow.user_id) {
@@ -871,9 +873,9 @@ adminRouter.post('/bookings/walk-in', async (req, res, next) => {
       ]
     );
 
-    emitSeatUpdated(libraryId, seatId, slotId, date, 'BOOKED');
+    emitSeatUpdated(libraryId, seatId, slotId, date, 'OCCUPIED');
 
-    sendSuccess(res, {
+    const walkInRecord = {
       id,
       code,
       libraryId,
@@ -881,11 +883,14 @@ adminRouter.post('/bookings/walk-in', async (req, res, next) => {
       floorLabel: 'Floor',
       slot: { id: slot.id, name: slot.name, startTime: slot.start_time, endTime: slot.end_time },
       date,
-      status: 'CHECKED_IN',
-      source: 'WALK_IN',
+      status: 'CHECKED_IN' as const,
+      source: 'WALK_IN' as const,
       guestName: guestName || 'Walk-in Guest',
       pricePaise: slot.price_paise,
-    }, undefined, 201);
+    };
+    emitBookingUpdated(libraryId, walkInRecord);
+
+    sendSuccess(res, walkInRecord, undefined, 201);
   } catch (err) {
     next(err);
   }
@@ -901,6 +906,9 @@ adminRouter.post('/bookings/:id/release', async (req, res, next) => {
 
     const dateStr = typeof b.booking_date === 'string' ? b.booking_date.substring(0, 10) : new Date(b.booking_date).toISOString().substring(0, 10);
     await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
+
+    emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+    emitBookingUpdated(b.library_id, { ...b, status: 'COMPLETED' });
 
     sendSuccess(res, { ...b, status: 'COMPLETED' });
   } catch (err) {
