@@ -176,6 +176,7 @@ export const Profile: React.FC = () => {
               latitude={Number(library.latitude) || 12.9716}
               longitude={Number(library.longitude) || 77.5946}
               onChange={(lat, lng) => setLibrary({ ...library, latitude: lat, longitude: lng })}
+              libraryName={library.name || 'Library Entrance'}
               height="240px"
             />
           </div>

@@ -275,7 +275,7 @@ export const RegisterLibrary: React.FC = () => {
             powerOutlets,
           },
           isFree,
-          status: 'PENDING' as const,
+          status: 'APPROVED' as const,
           seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
           totalSeats: 0,
           floorCount: 0,

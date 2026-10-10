@@ -13,35 +13,93 @@ interface LibraryMapProps {
   onSelectLibrary?: (lib: Library) => void;
 }
 
-const createCustomPin = (isSelected: boolean) =>
-  L.divIcon({
-    className: 'custom-pin',
+function escapeHtml(str: string): string {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+const createCustomPin = (name: string, isSelected: boolean) => {
+  const safeName = escapeHtml(name || 'Library');
+  return L.divIcon({
+    className: 'custom-library-marker',
     html: `
       <div style="
-        background: ${isSelected ? '#E8602C' : '#2B5BE0'};
-        width: ${isSelected ? '38px' : '32px'};
-        height: ${isSelected ? '38px' : '32px'};
-        border-radius: 50% 50% 50% 0;
-        transform: rotate(-45deg);
         display: flex;
+        flex-direction: column;
         align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 12px ${isSelected ? 'rgba(232, 96, 44, 0.45)' : 'rgba(43, 91, 224, 0.35)'};
-        border: 2.5px solid white;
-        transition: all 0.2s ease-in-out;
+        width: 160px;
+        pointer-events: auto;
+        cursor: pointer;
+        user-select: none;
       ">
+        <!-- Small Library Name Indicator Badge -->
         <div style="
-          transform: rotate(45deg);
-          color: white;
-          font-weight: bold;
-          font-size: ${isSelected ? '15px' : '13px'};
-        ">🏛</div>
+          background: ${isSelected ? '#E8602C' : 'rgba(255, 255, 255, 0.95)'};
+          color: ${isSelected ? '#FFFFFF' : '#0F172A'};
+          font-size: 11px;
+          font-weight: 700;
+          line-height: 1.25;
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          padding: 3px 9px;
+          border-radius: 9999px;
+          border: 1.5px solid ${isSelected ? '#C2410C' : '#E2E8F0'};
+          box-shadow: 0 3px 10px ${isSelected ? 'rgba(232, 96, 44, 0.45)' : 'rgba(15, 23, 42, 0.16)'};
+          white-space: nowrap;
+          max-width: 146px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: center;
+          margin-bottom: 5px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        ">
+          <span style="
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: ${isSelected ? '#FFFFFF' : '#E8602C'};
+            display: inline-block;
+            flex-shrink: 0;
+          "></span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${safeName}
+          </span>
+        </div>
+
+        <!-- Droplet Map Pin -->
+        <div style="
+          background: ${isSelected ? '#E8602C' : '#1E293B'};
+          width: 30px;
+          height: 30px;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 4px 12px ${isSelected ? 'rgba(232, 96, 44, 0.5)' : 'rgba(15, 23, 42, 0.35)'};
+          border: 2px solid white;
+          transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        ">
+          <div style="
+            transform: rotate(45deg);
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+          ">🏛</div>
+        </div>
       </div>
     `,
-    iconSize: isSelected ? [38, 38] : [32, 32],
-    iconAnchor: isSelected ? [19, 38] : [16, 32],
-    popupAnchor: isSelected ? [0, -38] : [0, -32],
+    iconSize: [160, 64],
+    iconAnchor: [80, 64],
+    popupAnchor: [0, -64],
   });
+};
 
 // Component to handle map view updates: centering, bounds auto-fitting, and fly-to
 const MapViewController: React.FC<{
@@ -132,16 +190,12 @@ export const LibraryMap: React.FC<LibraryMapProps> = ({
             <Marker
               key={lib.id}
               position={[lat, lng]}
-              icon={createCustomPin(isSelected)}
+              icon={createCustomPin(lib.name, isSelected)}
               eventHandlers={{
                 click: () => onSelectLibrary && onSelectLibrary(lib),
               }}
             >
-              <Tooltip direction="top" offset={[0, -32]} opacity={0.95}>
-                <span className="font-bold text-xs">{lib.name}</span>
-              </Tooltip>
-
-              <Popup>
+              <Popup offset={[0, -64]}>
                 <div className="p-1 space-y-2 text-xs min-w-[200px]">
                   <div>
                     <h4 className="font-black text-slate-900 text-sm">{lib.name}</h4>

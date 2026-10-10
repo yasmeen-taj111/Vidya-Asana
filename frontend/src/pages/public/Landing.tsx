@@ -40,6 +40,13 @@ export const Landing: React.FC = () => {
             <ArrowRight className="w-4 h-4" />
           </Link>
           <Link
+            to="/app/discover"
+            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-slate-900 hover:bg-slate-800 text-white font-bold text-sm shadow-xl shadow-slate-900/20 transition-all flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
+          >
+            <Compass className="w-4 h-4 text-accent" />
+            <span>Explore Library Map</span>
+          </Link>
+          <Link
             to="/register-library"
             className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-white hover:bg-slate-50 text-navy font-bold text-sm border border-slate-200 shadow-sm transition-all flex items-center justify-center gap-2"
           >

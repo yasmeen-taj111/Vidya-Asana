@@ -717,7 +717,7 @@ export const handlers = [
     const seatType = url.searchParams.get('seatType');
 
     const libraries = getStoredLibraries();
-    let approved = libraries.filter((l) => l.status === 'APPROVED');
+    let approved = libraries.filter((l) => l.status !== 'REJECTED');
     if (q) {
       approved = approved.filter(
         (l) => l.name.toLowerCase().includes(q.toLowerCase()) || l.city.toLowerCase().includes(q.toLowerCase())
@@ -740,7 +740,7 @@ export const handlers = [
   http.get(`${BASE}/recommendations/libraries`, () => {
     const libraries = getStoredLibraries();
     const scored = libraries
-      .filter((l) => l.status === 'APPROVED')
+      .filter((l) => l.status !== 'REJECTED')
       .map((l) => ({ ...l, matchScore: l.id === 'lib-1' ? 96 : 88 }));
     return HttpResponse.json({ success: true, data: scored });
   }),

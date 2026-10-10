@@ -22,7 +22,7 @@ discoveryRouter.get('/libraries', async (req, res, next) => {
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'GROUP' AND s.is_active = 1) as count_group,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'ACCESSIBLE' AND s.is_active = 1) as count_accessible,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'COMPUTER' AND s.is_active = 1) as count_computer
-      FROM libraries l WHERE l.status = 'APPROVED'
+      FROM libraries l WHERE l.status != 'REJECTED'
     `;
     const params: any[] = [];
 
@@ -68,7 +68,7 @@ discoveryRouter.get('/recommendations/libraries', optionalAuth, async (req, res,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'GROUP' AND s.is_active = 1) as count_group,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'ACCESSIBLE' AND s.is_active = 1) as count_accessible,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'COMPUTER' AND s.is_active = 1) as count_computer
-      FROM libraries l WHERE l.status = 'APPROVED'
+      FROM libraries l WHERE l.status != 'REJECTED'
     `);
 
     const libraries = rows.map(mapLibraryRow);

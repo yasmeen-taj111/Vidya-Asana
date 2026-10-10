@@ -13,33 +13,83 @@ interface LocationPickerMapProps {
   className?: string;
 }
 
-const customPickerIcon = L.divIcon({
-  className: 'custom-picker-pin',
-  html: `
-    <div style="
-      background: #E8602C;
-      width: 36px;
-      height: 36px;
-      border-radius: 50% 50% 50% 0;
-      transform: rotate(-45deg);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 12px rgba(232, 96, 44, 0.4);
-      border: 3px solid white;
-    ">
+function escapeHtml(str: string): string {
+  return (str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+const createPickerIcon = (name: string) => {
+  const safeName = escapeHtml(name || 'Library Entrance');
+  return L.divIcon({
+    className: 'custom-picker-pin',
+    html: `
       <div style="
-        transform: rotate(45deg);
-        color: white;
-        font-weight: bold;
-        font-size: 15px;
-      ">📍</div>
-    </div>
-  `,
-  iconSize: [36, 36],
-  iconAnchor: [18, 36],
-  popupAnchor: [0, -36],
-});
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 170px;
+        pointer-events: auto;
+        cursor: grab;
+        user-select: none;
+      ">
+        <!-- Small Name Indicator Pill -->
+        <div style="
+          background: #E8602C;
+          color: #FFFFFF;
+          font-size: 11px;
+          font-weight: 700;
+          font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          padding: 3px 9px;
+          border-radius: 9999px;
+          border: 1.5px solid #C2410C;
+          box-shadow: 0 3px 10px rgba(232, 96, 44, 0.45);
+          white-space: nowrap;
+          max-width: 160px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          text-align: center;
+          margin-bottom: 5px;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        ">
+          <span style="font-size: 10px;">📍</span>
+          <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+            ${safeName}
+          </span>
+        </div>
+
+        <!-- Pin Head -->
+        <div style="
+          background: #E8602C;
+          width: 32px;
+          height: 32px;
+          border-radius: 50% 50% 50% 0;
+          transform: rotate(-45deg);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 4px 12px rgba(232, 96, 44, 0.45);
+          border: 2.5px solid white;
+        ">
+          <div style="
+            transform: rotate(45deg);
+            color: white;
+            font-weight: bold;
+            font-size: 13px;
+          ">🏛</div>
+        </div>
+      </div>
+    `,
+    iconSize: [170, 64],
+    iconAnchor: [85, 64],
+    popupAnchor: [0, -64],
+  });
+};
 
 // Helper component to listen to clicks on map and update coordinates
 const MapClickHandler: React.FC<{ onPick: (lat: number, lng: number) => void }> = ({ onPick }) => {
@@ -134,7 +184,7 @@ export const LocationPickerMap: React.FC<LocationPickerMapProps> = ({
 
           <Marker
             position={[centerLat, centerLng]}
-            icon={customPickerIcon}
+            icon={createPickerIcon(libraryName)}
             draggable={true}
             eventHandlers={{
               dragend: handleMarkerDragEnd,
