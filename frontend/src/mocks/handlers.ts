@@ -46,6 +46,7 @@ import {
 } from './storage';
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library } from '../api/types';
+import { generateChatResponse } from '../chat/chatEngine';
 
 const BASE = '*/api/v1';
 
@@ -1178,40 +1179,14 @@ export const handlers = [
 
   http.post(`${BASE}/chat`, async ({ request }) => {
     const { message } = (await request.json()) as { message: string };
-    const q = message.toLowerCase();
-
-    let reply = "Hello! I'm Vidya Bot, your AI study assistant. How can I assist you with your library seats or study sessions today?";
-    const suggestedActions: any[] = [];
-
-    if (q.includes('book') || q.includes('seat')) {
-      reply = "Central Study Hub currently has available morning and afternoon desks on Floor 1. Would you like to check the interactive seating layout?";
-      suggestedActions.push({
-        label: 'View Central Study Hub',
-        type: 'NAVIGATE',
-        payload: { path: '/app/libraries/lib-1/book' },
-      });
-    } else if (q.includes('timer') || q.includes('focus') || q.includes('pomodoro')) {
-      reply = "Our integrated Pomodoro and stopwatch study tools are ready! You can track your daily streaks and earn leaderboard rankings.";
-      suggestedActions.push({
-        label: 'Open Study Timer',
-        type: 'NAVIGATE',
-        payload: { path: '/app/study' },
-      });
-    } else if (q.includes('qr') || q.includes('checkin') || q.includes('check in')) {
-      reply = "You can view your active entry QR code right from your dashboard or under 'My Bookings'. Present it to the admin desk upon arrival!";
-      suggestedActions.push({
-        label: 'My Bookings',
-        type: 'NAVIGATE',
-        payload: { path: '/app/bookings' },
-      });
-    }
+    const { reply, suggestedActions } = generateChatResponse(message || '');
 
     return HttpResponse.json({
       success: true,
       data: {
         conversationId: `conv-${Date.now()}`,
         reply,
-        suggestedActions,
+        suggestedActions: suggestedActions || [],
       },
     });
   }),

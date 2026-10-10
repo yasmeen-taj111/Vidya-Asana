@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { getErrorMessage } from '../utils/errorMessages';
 import { createDefaultFloorGrid } from '../mocks/db';
+import { generateChatResponse } from '../chat/chatEngine';
 import {
   saveStoredUser,
   findStoredUserByEmail,
@@ -461,6 +462,32 @@ describe('Library Isolation and Fresh Setup Flow', () => {
     const userLib = getLibraryForAdmin(found!);
     expect(userLib.id).toBe(testLibId);
     expect(userLib.name).toBe('Reentry Study Lounge');
+  });
+
+  describe('VidyaBot Frontend Assistant Tests', () => {
+    it('handles student slang, greetings, typos and intent prompts smoothly', () => {
+      const promptsAndChecks: Array<{ prompt: string; expectedSubstring: string; actionPath?: string }> = [
+        { prompt: 'whats ur name', expectedSubstring: 'VidyaBot' },
+        { prompt: 'who r u', expectedSubstring: 'VidyaBot' },
+        { prompt: 'how r u', expectedSubstring: 'great' },
+        { prompt: 'yo', expectedSubstring: 'great to see you' },
+        { prompt: 'wassup', expectedSubstring: 'great to see you' },
+        { prompt: 'bro i domt wanna go to lib', expectedSubstring: 'study fatigue', actionPath: '/app/study' },
+        { prompt: 'whats pomodro', expectedSubstring: 'Pomodoro Technique', actionPath: '/app/study' },
+        { prompt: 'which is best lib', expectedSubstring: 'Central Study Hub', actionPath: '/app/discover' },
+        { prompt: 'can u cancel my booking', expectedSubstring: 'Cancel Booking', actionPath: '/app/bookings' },
+        { prompt: 'whats leaderboards', expectedSubstring: 'Leaderboard', actionPath: '/app/leaderboard' },
+        { prompt: 'i dont wanna hv streaks', expectedSubstring: 'zero penalties' },
+      ];
+
+      for (const item of promptsAndChecks) {
+        const res = generateChatResponse(item.prompt);
+        expect(res.reply.toLowerCase()).toContain(item.expectedSubstring.toLowerCase());
+        if (item.actionPath) {
+          expect(res.suggestedActions?.some((a) => a.payload.path === item.actionPath)).toBe(true);
+        }
+      }
+    });
   });
 });
 

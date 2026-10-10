@@ -24,6 +24,7 @@ export const ChatWidget: React.FC = () => {
       suggestedActions: [
         { label: 'Find a seat', type: 'NAVIGATE', payload: { path: '/app/discover' } },
         { label: 'Pomodoro timer', type: 'NAVIGATE', payload: { path: '/app/study' } },
+        { label: 'Best libraries', type: 'NAVIGATE', payload: { path: '/app/discover' } },
       ],
     },
   ]);
@@ -82,7 +83,9 @@ export const ChatWidget: React.FC = () => {
 
   const handleActionClick = (action: { label: string; type: string; payload: Record<string, unknown> }) => {
     if (action.type === 'NAVIGATE' && typeof action.payload.path === 'string') {
-      navigate(action.payload.path);
+      const raw = action.payload.path;
+      const target = raw.startsWith('/app') || !raw.startsWith('/') ? raw : `/app${raw}`;
+      navigate(target);
       setIsOpen(false);
     }
   };
@@ -139,7 +142,7 @@ export const ChatWidget: React.FC = () => {
                 )}
                 <div className="max-w-[80%] space-y-2">
                   <div
-                    className={`p-3 rounded-2xl text-xs sm:text-sm leading-relaxed ${
+                    className={`p-3 rounded-2xl text-xs sm:text-sm leading-relaxed whitespace-pre-line ${
                       m.sender === 'user'
                         ? 'bg-primary text-white rounded-tr-none'
                         : 'bg-white text-slate-800 border border-slate-100 shadow-sm rounded-tl-none'
