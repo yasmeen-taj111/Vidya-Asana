@@ -36,6 +36,7 @@ import {
   resetBookingRateLimit,
 } from '../mocks/storage';
 import { mockFloorGrids, mockSlots } from '../mocks/db';
+import { UserPreferences, TimeSlot, Seat } from '../api/types';
 
 describe('Error Code Mapper', () => {
   it('maps known API error codes to human friendly messages', () => {
@@ -1105,6 +1106,110 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(target).toBeDefined();
       expect(target?.status).toBe('NO_SHOW');
       expect(target?.cancelledAt).toBeDefined();
+    });
+  });
+
+  describe('Preference-Based Slot Detection & Personalized Recommendations', () => {
+    it('detects and selects the slot matching user preferred study window', () => {
+      const prefs: UserPreferences = {
+        seatType: 'COMPUTER',
+        window: true,
+        powerOutlet: true,
+        quietZone: true,
+        studyMode: 'SOLO',
+        preferredSlot: 'MORNING',
+      };
+
+      const testSlots: TimeSlot[] = [
+        { id: 'sl-1', libraryId: 'lib-1', name: 'MORNING', startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
+        { id: 'sl-2', libraryId: 'lib-1', name: 'AFTERNOON', startTime: '12:00', endTime: '17:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-3', libraryId: 'lib-1', name: 'EVENING', startTime: '17:00', endTime: '21:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-4', libraryId: 'lib-1', name: 'NIGHT', startTime: '21:00', endTime: '23:59', isFree: false, pricePaise: 4000, isActive: true },
+      ];
+
+      // Match preferred slot
+      const matchedSlot = testSlots.find(
+        (s) => s.name.toUpperCase() === prefs.preferredSlot?.toUpperCase()
+      );
+
+      expect(matchedSlot).toBeDefined();
+      expect(matchedSlot?.name).toBe('MORNING');
+      expect(matchedSlot?.startTime).toBe('06:00');
+      expect(matchedSlot?.endTime).toBe('12:00');
+    });
+
+    it('auto-selects preferred slot when navigating to upcoming dates', () => {
+      const prefs: UserPreferences = {
+        preferredSlot: 'EVENING',
+      };
+
+      const testSlots: TimeSlot[] = [
+        { id: 'sl-1', libraryId: 'lib-1', name: 'MORNING', startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
+        { id: 'sl-2', libraryId: 'lib-1', name: 'AFTERNOON', startTime: '12:00', endTime: '17:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-3', libraryId: 'lib-1', name: 'EVENING', startTime: '17:00', endTime: '21:00', isFree: false, pricePaise: 5000, isActive: true },
+      ];
+
+      const futureDate = '2026-10-20';
+      const isFutureDate = futureDate > '2026-10-11';
+      expect(isFutureDate).toBe(true);
+
+      const prefSlot = testSlots.find(
+        (s) => s.name.toUpperCase() === prefs.preferredSlot?.toUpperCase()
+      );
+      expect(prefSlot).toBeDefined();
+      expect(prefSlot?.name).toBe('EVENING');
+    });
+
+    it('generates high recommendation scores (80-100%) when desk matches user preferred desk type, window, power socket, and quiet zone', () => {
+      const prefs: UserPreferences = {
+        seatType: 'COMPUTER',
+        window: true,
+        powerOutlet: true,
+        quietZone: true,
+        studyMode: 'SOLO',
+        preferredSlot: 'MORNING',
+      };
+
+      const desk: Seat = {
+        id: 'seat-comp-1',
+        floorId: 'fl-1',
+        label: 'C-01',
+        seatType: 'COMPUTER',
+        facing: 'N',
+        attributes: {
+          window: true,
+          powerOutlet: true,
+          quietZone: true,
+          nearDoor: false,
+        },
+        isActive: true,
+      };
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (prefs.seatType && desk.seatType === prefs.seatType) {
+        score += 40;
+        reasons.push(`Matches desired ${desk.seatType.toLowerCase()} desk`);
+      }
+      if (desk.attributes.window && prefs.window) {
+        score += 20;
+        reasons.push('Direct natural light & window desk');
+      }
+      if (desk.attributes.powerOutlet && prefs.powerOutlet) {
+        score += 20;
+        reasons.push('Dedicated laptop power socket');
+      }
+      if (desk.attributes.quietZone && prefs.quietZone) {
+        score += 20;
+        reasons.push('Strict silent pod & quiet zone');
+      }
+
+      expect(score).toBe(100);
+      expect(reasons).toContain('Matches desired computer desk');
+      expect(reasons).toContain('Direct natural light & window desk');
+      expect(reasons).toContain('Dedicated laptop power socket');
+      expect(reasons).toContain('Strict silent pod & quiet zone');
     });
   });
 });

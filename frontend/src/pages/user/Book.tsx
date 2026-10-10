@@ -11,7 +11,9 @@ import {
   SeatSuggestion,
   Booking,
   WaitlistEntry,
+  UserPreferences,
 } from '../../api/types';
+import { studyApi } from '../../api/study';
 import { SeatGrid } from '../../components/SeatGrid/SeatGrid';
 import { ConflictModal } from '../../components/ConflictModal';
 import { QRCard } from '../../components/QRCard';
@@ -67,12 +69,40 @@ export const Book: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [loadingGrid, setLoadingGrid] = useState(false);
 
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+
   // Available dates: Next 14 days per PRD
   const availableDates = Array.from({ length: 14 }).map((_, i) =>
     format(addDays(new Date(), i), 'yyyy-MM-dd')
   );
 
-  // Load library metadata, slots, floors
+  const isSlotPastToday = (slot: TimeSlot) => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (selectedDate !== todayStr) return false;
+    const now = new Date();
+    const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    return slot.endTime <= curTime;
+  };
+
+  const findPreferredSlot = (slotList: TimeSlot[], dateStr: string, prefs: UserPreferences | null): TimeSlot | null => {
+    if (!prefs?.preferredSlot || slotList.length === 0) return null;
+    const preferredName = prefs.preferredSlot.toUpperCase();
+    const matched = slotList.find((s) => s.name.toUpperCase() === preferredName);
+    if (!matched) return null;
+
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (dateStr === todayStr) {
+      const now = new Date();
+      const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (matched.endTime > curTime) {
+        return matched;
+      }
+      return null;
+    }
+    return matched;
+  };
+
+  // Load library metadata, slots, floors, and user preferences
   useEffect(() => {
     if (!libraryId) return;
 
@@ -80,8 +110,9 @@ export const Book: React.FC = () => {
       librariesApi.getLibrary(libraryId),
       librariesApi.getSlots(libraryId),
       librariesApi.getFloors(libraryId),
+      studyApi.getPreferences().catch(() => null),
     ])
-      .then(([lib, slotList, floorList]) => {
+      .then(([lib, slotList, floorList, prefs]) => {
         setLibrary(lib);
         let finalSlots = slotList && slotList.length > 0 ? slotList : [
           { id: 'slot-morning', libraryId: lib.id, name: 'MORNING' as const, startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
@@ -90,18 +121,36 @@ export const Book: React.FC = () => {
           { id: 'slot-night', libraryId: lib.id, name: 'NIGHT' as const, startTime: '21:00', endTime: '23:59', isFree: !!lib.isFree, pricePaise: lib.isFree ? 0 : 8000, isActive: true },
         ];
         setSlots(finalSlots);
-        const todayStr = format(new Date(), 'yyyy-MM-dd');
-        const now = new Date();
-        const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-        const activeOrUpcoming = finalSlots.find((s) => s.endTime > curTime);
-        if (finalSlots.length > 0) {
-          setSelectedSlot(activeOrUpcoming || finalSlots[0]);
+        if (prefs) setUserPreferences(prefs);
+
+        // Auto-detect slot based on preferences
+        const prefSlot = findPreferredSlot(finalSlots, selectedDate, prefs);
+        if (prefSlot) {
+          setSelectedSlot(prefSlot);
+        } else {
+          const now = new Date();
+          const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+          const activeOrUpcoming = finalSlots.find((s) => s.endTime > curTime);
+          if (finalSlots.length > 0) {
+            setSelectedSlot(activeOrUpcoming || finalSlots[0]);
+          }
         }
+
         setFloors(floorList);
         if (floorList.length > 0) setActiveFloorId(floorList[0].id);
       })
       .catch((err) => console.error(err));
   }, [libraryId]);
+
+  // Synchronize slot auto-detection when userPreferences, slots, or date change
+  useEffect(() => {
+    if (slots.length > 0 && userPreferences?.preferredSlot) {
+      const prefSlot = findPreferredSlot(slots, selectedDate, userPreferences);
+      if (prefSlot && selectedSlot?.id !== prefSlot.id) {
+        setSelectedSlot(prefSlot);
+      }
+    }
+  }, [userPreferences, slots, selectedDate]);
 
   // Load user's existing bookings and waitlists to prevent conflicts and show active status
   const loadUserWaitlist = () => {
@@ -124,26 +173,25 @@ export const Book: React.FC = () => {
     loadUserWaitlist();
   }, []);
 
-  const isSlotPastToday = (slot: TimeSlot) => {
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
-    if (selectedDate !== todayStr) return false;
-    const now = new Date();
-    const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-    return slot.endTime <= curTime;
-  };
-
   const handleSelectDate = (d: string) => {
     setSelectedDate(d);
     setSelectedSeat(null);
-    const todayStr = format(new Date(), 'yyyy-MM-dd');
-    if (d === todayStr) {
-      const now = new Date();
-      const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      if (!selectedSlot || selectedSlot.endTime <= curTime) {
-        const upcomingSlot = slots.find((s) => s.endTime > curTime);
-        if (upcomingSlot) {
-          setSelectedSlot(upcomingSlot);
+    const prefSlot = findPreferredSlot(slots, d, userPreferences);
+    if (prefSlot) {
+      setSelectedSlot(prefSlot);
+    } else {
+      const todayStr = format(new Date(), 'yyyy-MM-dd');
+      if (d === todayStr) {
+        const now = new Date();
+        const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+        if (!selectedSlot || selectedSlot.endTime <= curTime) {
+          const upcomingSlot = slots.find((s) => s.endTime > curTime);
+          if (upcomingSlot) {
+            setSelectedSlot(upcomingSlot);
+          }
         }
+      } else if (slots.length > 0) {
+        setSelectedSlot(slots[0]);
       }
     }
   };
@@ -187,7 +235,7 @@ export const Book: React.FC = () => {
       const sugData = await librariesApi.suggestSeats(libraryId, {
         date: selectedDate,
         slotId: selectedSlot.id,
-        preferences: {},
+        preferences: userPreferences || {},
       });
       setSuggestions(sugData);
     } catch (err) {
@@ -399,16 +447,60 @@ export const Book: React.FC = () => {
           </div>
 
           <div>
-            <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-              <Clock className="w-5 h-5 text-primary" /> 2. Choose Time Slot
-            </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Select your preferred study session block.
-            </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-primary" /> 2. Choose Time Slot
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  Select your preferred study session block.
+                </p>
+              </div>
+              {userPreferences?.preferredSlot && (
+                <div className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-full">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Preferred: {userPreferences.preferredSlot}</span>
+                </div>
+              )}
+            </div>
+
+            {userPreferences?.preferredSlot && (
+              <div className="mt-3 p-3.5 bg-primary/5 rounded-2xl border border-primary/15 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-primary">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-primary shrink-0 animate-pulse" />
+                  <span>
+                    Your preferred study window is <strong>{userPreferences.preferredSlot}</strong>.
+                    {selectedSlot?.name.toUpperCase() === userPreferences.preferredSlot.toUpperCase()
+                      ? ' We automatically detected and selected it for you below!'
+                      : ' Click below to choose it.'}
+                  </span>
+                </div>
+                {selectedSlot?.name.toUpperCase() !== userPreferences.preferredSlot.toUpperCase() && (() => {
+                  const pref = slots.find((s) => s.name.toUpperCase() === userPreferences.preferredSlot?.toUpperCase());
+                  if (pref && !isSlotPastToday(pref)) {
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedSlot(pref);
+                          setSelectedSeat(null);
+                        }}
+                        className="px-3.5 py-1.5 rounded-xl bg-primary text-white font-bold text-xs shadow-xs hover:bg-primary-hover shrink-0 transition-all flex items-center gap-1"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Select {pref.name}
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
               {slots.map((s) => {
                 const isSelected = selectedSlot?.id === s.id;
+                const isPreferred = userPreferences?.preferredSlot?.toUpperCase() === s.name.toUpperCase();
                 const existingRes = getSlotReservation(s.id);
                 const existingWait = getSlotWaitlist(s.id);
                 const isPast = isSlotPastToday(s);
@@ -427,6 +519,8 @@ export const Book: React.FC = () => {
                         ? 'opacity-40 cursor-not-allowed bg-slate-100 border-slate-200 text-slate-400'
                         : isSelected
                         ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm font-semibold'
+                        : isPreferred
+                        ? 'border-primary/40 bg-primary/[0.03] hover:bg-primary/10 text-slate-900'
                         : existingRes
                         ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-50 text-slate-700'
                         : existingWait
@@ -435,7 +529,14 @@ export const Book: React.FC = () => {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold text-slate-900">{s.name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-bold text-slate-900">{s.name}</span>
+                        {isPreferred && (
+                          <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5" /> Preferred
+                          </span>
+                        )}
+                      </div>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                         isPast
                           ? 'bg-slate-200 text-slate-500'
@@ -454,6 +555,10 @@ export const Book: React.FC = () => {
                     ) : existingWait ? (
                       <div className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-md flex items-center gap-1 w-fit">
                         <Clock className="w-3 h-3 text-blue-600" /> Waitlisted ({existingWait.seat.label} #{existingWait.position})
+                      </div>
+                    ) : isPreferred && !isSelected ? (
+                      <div className="text-[10px] font-medium text-primary flex items-center gap-1">
+                        <Sparkles className="w-3 h-3" /> Matches your study window
                       </div>
                     ) : null}
                   </button>
@@ -515,6 +620,36 @@ export const Book: React.FC = () => {
       {/* Step 2: Suggested Seats + Interactive Floor Grid */}
       {step === 2 && (
         <div className="space-y-6 animate-fade-in">
+          {/* Active Reservation Slot & Preference Context Bar */}
+          <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                <Calendar className="w-4 h-4 text-primary" />
+                <span>{format(new Date(selectedDate), 'EEE, d MMM yyyy')}</span>
+              </div>
+              <span className="text-slate-300">•</span>
+              <div className="flex items-center gap-1.5 font-bold text-navy font-mono">
+                <Clock className="w-4 h-4 text-primary" />
+                <span>{selectedSlot?.name} ({selectedSlot?.startTime} – {selectedSlot?.endTime})</span>
+              </div>
+              {userPreferences?.preferredSlot?.toUpperCase() === selectedSlot?.name.toUpperCase() ? (
+                <span className="bg-primary/10 text-primary border border-primary/20 font-bold px-2.5 py-0.5 rounded-full text-[10px] flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-primary animate-pulse" /> Auto-detected from preferences
+                </span>
+              ) : (
+                <span className="bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded-full text-[10px]">
+                  Custom Slot
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setStep(1)}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-primary font-bold text-xs flex items-center gap-1 transition-all"
+            >
+              Change Date or Slot →
+            </button>
+          </div>
+
           {/* Top Recommendations Strip */}
           {suggestions.length > 0 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3">
@@ -522,7 +657,11 @@ export const Book: React.FC = () => {
                 <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-accent" /> Recommended Best Desks for You
                 </span>
-                <span className="text-[11px] text-slate-400">Ranked by algorithm</span>
+                <span className="text-[11px] text-slate-400">
+                  {userPreferences?.seatType
+                    ? `Tailored to your ${userPreferences.seatType.toLowerCase()} desk & environment preferences`
+                    : 'Ranked by algorithm'}
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

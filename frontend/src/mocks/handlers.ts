@@ -47,7 +47,7 @@ import {
   checkBookingRateLimit,
 } from './storage';
 import { useUiStore } from '../store/uiStore';
-import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell } from '../api/types';
+import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell, UserPreferences } from '../api/types';
 import { generateChatResponse } from '../chat/chatEngine';
 import { mockSocketInstance } from '../realtime/socket';
 
@@ -730,43 +730,122 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: clonedGrid });
   }),
 
-  http.post(`${BASE}/libraries/:id/suggest-seats`, async () => {
-    const fl1Seats = mockFloorGrids['fl-1']?.cells
-      .filter((c) => c.type === 'SEAT' && c.seat)
-      .map((c) => c.seat!) || [];
-    const fl2Seats = mockFloorGrids['fl-2']?.cells
-      .filter((c) => c.type === 'SEAT' && c.seat)
-      .map((c) => c.seat!) || [];
+  http.post(`${BASE}/libraries/:id/suggest-seats`, async ({ params, request }) => {
+    const libraryId = params.id as string;
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch {}
 
-    const seat1 = fl1Seats.find((s) => s.label === 'F1-A4') || fl1Seats[0];
-    const seat2 = fl1Seats.find((s) => s.label === 'F1-B1') || fl1Seats[1] || fl1Seats[0];
-    const seat3 = fl2Seats.find((s) => s.label === 'F2-A1') || fl2Seats[0] || seat1;
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const savedPrefs = getUserPreferences(userId);
+    const prefs: UserPreferences = {
+      ...savedPrefs,
+      ...(body.preferences || {}),
+    };
 
-    const suggestions: SeatSuggestion[] = [];
-    if (seat1) {
-      suggestions.push({
-        seat: seat1,
-        floorLabel: 'Floor 1 - Main Hall',
-        score: 95,
-        reasons: ['Quiet window desk', 'Near power outlet', 'Ergonomic high-back chair'],
+    const floorsObj = getStoredFloorsForLibrary(libraryId);
+    const allBookings = getStoredBookings();
+    const date = body.date;
+    const slotId = body.slotId;
+
+    const bookedSeatIds = new Set(
+      allBookings
+        .filter(
+          (b) =>
+            b.date === date &&
+            b.slot.id === slotId &&
+            (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+        )
+        .map((b) => b.seat.id)
+    );
+
+    const candidates: { seat: Seat; floorLabel: string }[] = [];
+    Object.values(floorsObj).forEach((grid) => {
+      grid.cells.forEach((cell) => {
+        if (cell.type === 'SEAT' && cell.seat && cell.seat.isActive && !bookedSeatIds.has(cell.seat.id)) {
+          candidates.push({
+            seat: cell.seat,
+            floorLabel: grid.label,
+          });
+        }
+      });
+    });
+
+    // Fallback if library floors empty
+    if (candidates.length === 0) {
+      Object.values(mockFloorGrids).forEach((grid) => {
+        grid.cells.forEach((cell) => {
+          if (cell.type === 'SEAT' && cell.seat && cell.seat.isActive && !bookedSeatIds.has(cell.seat.id)) {
+            candidates.push({
+              seat: cell.seat,
+              floorLabel: grid.label,
+            });
+          }
+        });
       });
     }
-    if (seat2) {
-      suggestions.push({
-        seat: seat2,
-        floorLabel: 'Floor 1 - Main Hall',
-        score: 88,
-        reasons: ['Direct natural sunlight', 'Dedicated electrical socket'],
-      });
-    }
-    if (seat3) {
-      suggestions.push({
-        seat: seat3,
-        floorLabel: 'Floor 2 - Silent Research Zone',
-        score: 85,
-        reasons: ['Silent study zone', 'High-speed LAN port'],
-      });
-    }
+
+    // Score candidates against user preferences
+    const scoredList: SeatSuggestion[] = candidates.map(({ seat, floorLabel }) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // Seat Type match: 40 pts
+      if (prefs.seatType && seat.seatType === prefs.seatType) {
+        score += 40;
+        reasons.push(`Matches desired ${seat.seatType.toLowerCase()} desk`);
+      } else if (!prefs.seatType) {
+        score += 30;
+      } else {
+        score += 15;
+      }
+
+      // Window: 20 pts
+      if (seat.attributes.window) {
+        if (prefs.window) {
+          score += 20;
+          reasons.push('Direct natural light & window desk');
+        } else {
+          score += 10;
+        }
+      }
+
+      // Power Outlet: 20 pts
+      if (seat.attributes.powerOutlet) {
+        if (prefs.powerOutlet) {
+          score += 20;
+          reasons.push('Dedicated laptop power socket');
+        } else {
+          score += 10;
+        }
+      }
+
+      // Quiet Zone: 20 pts
+      if (seat.attributes.quietZone) {
+        if (prefs.quietZone) {
+          score += 20;
+          reasons.push('Strict silent pod & quiet zone');
+        } else {
+          score += 10;
+        }
+      }
+
+      if (reasons.length === 0) {
+        reasons.push('Quiet ergonomic study space');
+      }
+
+      return {
+        seat,
+        floorLabel,
+        score: Math.min(100, Math.max(20, score)),
+        reasons,
+      };
+    });
+
+    scoredList.sort((a, b) => b.score - a.score);
+    const suggestions = scoredList.slice(0, 5);
 
     return HttpResponse.json({ success: true, data: { suggestions } });
   }),
