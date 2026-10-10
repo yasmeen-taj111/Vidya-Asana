@@ -25,7 +25,13 @@ import {
   getStoredBookingsForLibrary,
   getStoredAnalyticsForLibrary,
   addStoredNotification,
+  getUserWaitlist,
+  getStoredWaitlist,
+  addStoredWaitlistEntry,
+  removeStoredWaitlistEntry,
+  updateStoredWaitlistEntry,
 } from '../mocks/storage';
+import { mockFloorGrids, mockSlots } from '../mocks/db';
 
 describe('Error Code Mapper', () => {
   it('maps known API error codes to human friendly messages', () => {
@@ -500,6 +506,175 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       const fullText = renderedStrings.join('');
       expect(fullText).not.toContain('**');
       expect(fullText).toContain('The Pomodoro Technique is a proven method for 25 Minutes Focus.');
+    });
+  });
+
+  describe('Student Seat Waitlist Queue & Claim Flow', () => {
+    it('correctly adds student to waitlist for an occupied seat and assigns queue position', () => {
+      const testUserId = `usr-test-wait-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'A-02')?.seat || mockFloorGrids['fl-1'].cells[1].seat!;
+      const slot = mockSlots[0];
+      const date = '2026-10-25';
+
+      const allWaitlist = getStoredWaitlist();
+      const existingQueueCount = allWaitlist.filter(
+        (w) => w.seat.id === seat.id && w.slot.id === slot.id && w.date === date && w.status === 'WAITING'
+      ).length;
+      const expectedPosition = existingQueueCount + 1;
+
+      const entryId = `wt-test-${Date.now()}`;
+      addStoredWaitlistEntry(testUserId, {
+        id: entryId,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'WAITING',
+        position: expectedPosition,
+        createdAt: new Date().toISOString(),
+      });
+
+      const userEntries = getUserWaitlist(testUserId);
+      const found = userEntries.find((w) => w.id === entryId);
+      expect(found).toBeDefined();
+      expect(found?.seat.label).toBe(seat.label);
+      expect(found?.position).toBe(expectedPosition);
+      expect(found?.status).toBe('WAITING');
+    });
+
+    it('detects and prevents duplicate waitlist requests for the same seat, slot, and date', () => {
+      const testUserId = `usr-test-dup-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[0].seat!;
+      const slot = mockSlots[1];
+      const date = '2026-10-26';
+
+      addStoredWaitlistEntry(testUserId, {
+        id: `wt-1-${Date.now()}`,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'WAITING',
+        position: 1,
+        createdAt: new Date().toISOString(),
+      });
+
+      const currentList = getUserWaitlist(testUserId);
+      const isDuplicate = currentList.some(
+        (w) => w.seat.id === seat.id && w.slot.id === slot.id && w.date === date && (w.status === 'WAITING' || w.status === 'NOTIFIED')
+      );
+      expect(isDuplicate).toBe(true);
+    });
+
+    it('notifies waiting student when a reservation is cancelled and sets a 10-minute claim expiry', () => {
+      const testUserId = `usr-test-notify-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[2].seat!;
+      const slot = mockSlots[2];
+      const date = '2026-10-27';
+      const entryId = `wt-notify-${Date.now()}`;
+
+      addStoredWaitlistEntry(testUserId, {
+        id: entryId,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'WAITING',
+        position: 1,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Simulate booking cancellation triggering notify
+      const claimExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      updateStoredWaitlistEntry(entryId, {
+        status: 'NOTIFIED',
+        claimExpiresAt,
+      });
+
+      const updatedList = getUserWaitlist(testUserId);
+      const updatedEntry = updatedList.find((w) => w.id === entryId);
+      expect(updatedEntry?.status).toBe('NOTIFIED');
+      expect(updatedEntry?.claimExpiresAt).toBe(claimExpiresAt);
+    });
+
+    it('claiming a notified waitlist entry updates status to CLAIMED and records booking', () => {
+      const testUserId = `usr-test-claim-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[3].seat!;
+      const slot = mockSlots[0];
+      const date = '2026-10-28';
+      const entryId = `wt-claim-${Date.now()}`;
+
+      addStoredWaitlistEntry(testUserId, {
+        id: entryId,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'NOTIFIED',
+        position: 1,
+        claimExpiresAt: new Date(Date.now() + 600000).toISOString(),
+        createdAt: new Date().toISOString(),
+      });
+
+      // Claiming
+      updateStoredWaitlistEntry(entryId, { status: 'CLAIMED' });
+      const bookingId = `bk-wl-${Date.now()}`;
+      saveStoredBooking({
+        id: bookingId,
+        code: `VA-WL${Math.random().toString(36).substring(2, 6).toUpperCase()}`,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1 - Main Hall',
+        slot,
+        date,
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: testUserId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: `${date}T${slot.startTime}:00.000Z`,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      const userEntries = getUserWaitlist(testUserId);
+      expect(userEntries.find((w) => w.id === entryId)?.status).toBe('CLAIMED');
+
+      const userBookings = getUserBookings(testUserId);
+      const claimedBooking = userBookings.find((b) => b.id === bookingId);
+      expect(claimedBooking).toBeDefined();
+      expect(claimedBooking?.seat.label).toBe(seat.label);
+      expect(claimedBooking?.status).toBe('CONFIRMED');
+    });
+
+    it('leaving waitlist removes the entry from the student active queue', () => {
+      const testUserId = `usr-test-leave-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[0].seat!;
+      const slot = mockSlots[0];
+      const date = '2026-10-29';
+      const entryId = `wt-leave-${Date.now()}`;
+
+      addStoredWaitlistEntry(testUserId, {
+        id: entryId,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'WAITING',
+        position: 1,
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(getUserWaitlist(testUserId).length).toBe(1);
+
+      removeStoredWaitlistEntry(entryId, testUserId);
+      expect(getUserWaitlist(testUserId).length).toBe(0);
     });
   });
 });

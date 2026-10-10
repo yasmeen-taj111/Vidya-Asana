@@ -2,9 +2,18 @@ import React, { useState } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
 import { mockSocketInstance } from '../realtime/socket';
-import { getStoredUsers, clearMemoryStore, findStoredLibraryById } from '../mocks/storage';
-import { mockUsers as initialMockUsers } from '../mocks/db';
-import { Wrench, ChevronUp, ChevronDown, BellRing, UserCheck, RotateCcw } from 'lucide-react';
+import {
+  getStoredUsers,
+  clearMemoryStore,
+  findStoredLibraryById,
+  getUserWaitlist,
+  addStoredWaitlistEntry,
+  updateStoredWaitlistEntry,
+  addStoredNotification,
+} from '../mocks/storage';
+import { mockUsers as initialMockUsers, mockFloorGrids, mockSlots } from '../mocks/db';
+import { WaitlistEntry } from '../api/types';
+import { Wrench, ChevronUp, ChevronDown, BellRing, UserCheck, RotateCcw, Clock } from 'lucide-react';
 
 export const DevPanel: React.FC = () => {
   const [collapsed, setCollapsed] = useState(true);
@@ -121,6 +130,64 @@ export const DevPanel: React.FC = () => {
     });
   };
 
+  const triggerWaitlistNotification = () => {
+    const studentId = user?.id || 'usr-4';
+    const currentWaitlist = getUserWaitlist(studentId);
+    let entry = currentWaitlist.find((w) => w.status === 'WAITING');
+
+    const claimExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+
+    if (!entry) {
+      // Create a demo waitlist entry on seat A-02 for instant demonstration
+      const demoSeat =
+        mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'A-02')?.seat ||
+        mockFloorGrids['fl-1'].cells[1].seat!;
+      const demoEntry: WaitlistEntry = {
+        id: `wt-${Date.now()}`,
+        seat: demoSeat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot: mockSlots[2] || mockSlots[0],
+        date: new Date().toISOString().substring(0, 10),
+        status: 'NOTIFIED',
+        position: 1,
+        claimExpiresAt,
+        createdAt: new Date().toISOString(),
+      };
+      addStoredWaitlistEntry(studentId, demoEntry);
+      entry = demoEntry;
+    } else {
+      updateStoredWaitlistEntry(entry.id, {
+        status: 'NOTIFIED',
+        claimExpiresAt,
+      });
+    }
+
+    addStoredNotification(studentId, {
+      id: `ntf-${Date.now()}`,
+      type: 'WAITLIST_AVAILABLE',
+      title: 'Waitlist Seat Freed!',
+      body: `A seat (${entry.seat.label}) at ${entry.libraryName} has been freed. You have 10 minutes to claim it!`,
+      isRead: false,
+      data: {
+        waitlistId: entry.id,
+        seatId: entry.seat.id,
+        slotId: entry.slot.id,
+        date: entry.date,
+        claimExpiresAt,
+      },
+      createdAt: new Date().toISOString(),
+    });
+
+    mockSocketInstance.simulateWaitlistAvailable(entry.id, entry.seat, claimExpiresAt);
+
+    addToast({
+      type: 'success',
+      title: 'Waitlist Seat Freed!',
+      message: `Simulated seat ${entry.seat.label} freed. Check Waitlist or Notifications to claim!`,
+    });
+  };
+
   return (
     <div className="fixed bottom-6 left-6 z-50">
       <div className="bg-slate-900 text-white rounded-2xl shadow-2xl border border-slate-700/80 overflow-hidden text-xs max-w-xs transition-all">
@@ -170,6 +237,17 @@ export const DevPanel: React.FC = () => {
               >
                 <BellRing className="w-3.5 h-3.5 text-amber-400" />
                 <span>Simulate No-Show Prompt</span>
+              </button>
+            </div>
+
+            {/* Simulated Waitlist Notification */}
+            <div>
+              <button
+                onClick={triggerWaitlistNotification}
+                className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg flex items-center justify-center gap-2 transition-colors border border-slate-700"
+              >
+                <Clock className="w-3.5 h-3.5 text-teal" />
+                <span>Simulate Seat Freed (Waitlist)</span>
               </button>
             </div>
 
