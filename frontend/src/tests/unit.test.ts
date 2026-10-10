@@ -15,10 +15,13 @@ import {
   getLibraryForAdmin,
   getStoredFloorsForLibrary,
   saveStoredFloorForLibrary,
+  saveStoredFloorsForLibrary,
   getStoredSlotsForLibrary,
+  saveStoredSlotsForLibrary,
   addStoredSlotForLibrary,
   getStoredBookingsForLibrary,
   getStoredAnalyticsForLibrary,
+  addStoredNotification,
 } from '../mocks/storage';
 
 describe('Error Code Mapper', () => {
@@ -363,6 +366,58 @@ describe('Library Isolation and Fresh Setup Flow', () => {
     // Central Study Hub (lib-1) remains isolated and unaffected
     const lib1Slots = getStoredSlotsForLibrary('lib-1');
     expect(lib1Slots.some((s) => s.libraryId === testLibId)).toBe(false);
+  });
+
+  it('generates welcome notification and initial isolation state for newly registered library admin', () => {
+    const testLibId = `lib-test-notif-${Date.now()}`;
+    const testAdminId = `usr-admin-notif-${Date.now()}`;
+
+    const newAdmin = {
+      id: testAdminId,
+      name: 'Notif Admin',
+      email: `notif-${Date.now()}@library.test`,
+      role: 'LIBRARY_ADMIN' as const,
+      libraryId: testLibId,
+      createdAt: new Date().toISOString(),
+    };
+    saveStoredUser(newAdmin);
+
+    const newLib = {
+      id: testLibId,
+      name: 'Horizon Knowledge Hub',
+      address: '22 Residency Road',
+      city: 'Bengaluru',
+      latitude: 12.97,
+      longitude: 77.6,
+      contactEmail: newAdmin.email,
+      amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+      isFree: false,
+      status: 'PENDING' as const,
+      seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
+      totalSeats: 0,
+      floorCount: 0,
+      createdAt: new Date().toISOString(),
+    };
+    saveStoredLibrary(newLib);
+    saveStoredFloorsForLibrary(testLibId, {});
+    saveStoredSlotsForLibrary(testLibId, []);
+
+    addStoredNotification(newAdmin.id, {
+      id: `notif-${Date.now()}`,
+      title: 'Library Registration Submitted! 🏛️',
+      body: `Your application for "${newLib.name}" is pending platform owner verification. Once approved, you can build your floor layouts and accept bookings.`,
+      type: 'SYSTEM',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
+
+    const notifs = getUserNotifications(newAdmin.id);
+    expect(notifs.length).toBe(1);
+    expect(notifs[0].title).toContain('Library Registration Submitted!');
+    expect(notifs[0].body).toContain('pending platform owner verification');
+
+    const adminLib = getLibraryForAdmin(newAdmin);
+    expect(adminLib.status).toBe('PENDING');
   });
 });
 

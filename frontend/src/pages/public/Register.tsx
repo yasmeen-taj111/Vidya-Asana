@@ -3,6 +3,11 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { authApi } from '../../api/auth';
 import { useUiStore } from '../../store/uiStore';
+import {
+  findStoredUserByEmail,
+  saveStoredUser,
+  addStoredNotification,
+} from '../../mocks/storage';
 import { UserPlus, User, Mail, Key, Phone } from 'lucide-react';
 
 export const Register: React.FC = () => {
@@ -38,10 +43,58 @@ export const Register: React.FC = () => {
       });
       navigate('/app');
     } catch (err: any) {
+      const isNetworkError =
+        err?.message === 'Network Error' ||
+        err?.name === 'AxiosError' ||
+        (typeof err?.message === 'string' && err.message.toLowerCase().includes('network'));
+
+      if (isNetworkError && import.meta.env.VITE_USE_MOCKS === 'true') {
+        const existing = findStoredUserByEmail(email);
+        if (existing) {
+          addToast({
+            type: 'error',
+            title: 'Registration Failed',
+            message: 'Email address already in use.',
+          });
+          setLoading(false);
+          return;
+        }
+
+        const newUser = {
+          id: `usr-${Date.now()}`,
+          name,
+          email,
+          role: 'USER' as const,
+          phone: phone || undefined,
+          createdAt: new Date().toISOString(),
+        };
+        saveStoredUser(newUser);
+
+        addStoredNotification(newUser.id, {
+          id: `notif-${Date.now()}`,
+          title: 'Welcome to Vidya Asana! 🎓',
+          body: 'Your account is ready. Discover quiet libraries, book ergonomic desks, and track focus streaks.',
+          type: 'SYSTEM',
+          isRead: false,
+          createdAt: new Date().toISOString(),
+        });
+
+        setAuth(newUser, `mock-token-${newUser.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: 'Registration Complete!',
+          message: `Welcome to Vidya Asana, ${newUser.name}.`,
+        });
+        navigate('/app');
+        return;
+      }
+
       addToast({
         type: 'error',
         title: 'Registration Failed',
-        message: err.message || 'Could not register user account.',
+        message: isNetworkError
+          ? 'Unable to reach the server. Please verify the backend is running on http://localhost:4000.'
+          : err.message || 'Could not register user account.',
       });
     } finally {
       setLoading(false);

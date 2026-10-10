@@ -5,10 +5,14 @@ import './index.css';
 
 async function prepareApp() {
   if (import.meta.env.VITE_USE_MOCKS === 'true') {
-    const { worker } = await import('./mocks/browser');
-    await worker.start({
-      onUnhandledRequest: 'bypass',
-    });
+    try {
+      const { worker } = await import('./mocks/browser');
+      await worker.start({
+        onUnhandledRequest: 'bypass',
+      });
+    } catch (err) {
+      console.warn('MSW Service Worker could not start (likely private browsing or sandbox), requests will fallback to network:', err);
+    }
   }
 }
 

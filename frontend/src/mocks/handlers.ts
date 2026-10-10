@@ -47,7 +47,7 @@ import {
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library } from '../api/types';
 
-const BASE = 'http://localhost:4000/api/v1';
+const BASE = '*/api/v1';
 
 export const handlers = [
   // 4.1 Auth

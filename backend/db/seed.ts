@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { pool, query } from '../src/config/db';
 import { generateUUID, generateBookingCode } from '../src/utils/ids';
 
