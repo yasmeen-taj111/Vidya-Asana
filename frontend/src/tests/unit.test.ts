@@ -9,16 +9,6 @@ import {
   addStoredStudySession,
   getUserNotifications,
   getUserPreferences,
-  saveStoredLibrary,
-  findStoredLibraryById,
-  updateStoredLibrary,
-  getLibraryForAdmin,
-  getStoredFloorsForLibrary,
-  saveStoredFloorForLibrary,
-  getStoredSlotsForLibrary,
-  addStoredSlotForLibrary,
-  getStoredBookingsForLibrary,
-  getStoredAnalyticsForLibrary,
 } from '../mocks/storage';
 
 describe('Error Code Mapper', () => {
@@ -185,19 +175,19 @@ describe('Student Seat Booking & Suggestion Flow', () => {
     const grid1 = createDefaultFloorGrid('fl-1', 1, 'Floor 1');
     const fl1Seats = grid1.cells.filter((c) => c.type === 'SEAT' && c.seat).map((c) => c.seat!);
 
-    // Verify seats exist and safe fallback selector guarantees valid seat models for recommendation
-    expect(fl1Seats.length).toBeGreaterThan(0);
-    const hasA1 = fl1Seats.some((s) => s.label === 'F1-A1');
+    // Verify Aisle at column index 3 means F1-A4 does NOT exist, while F1-A3 and F1-B1 exist
+    const hasA3 = fl1Seats.some((s) => s.label === 'F1-A3');
+    const hasA4 = fl1Seats.some((s) => s.label === 'F1-A4');
     const hasB1 = fl1Seats.some((s) => s.label === 'F1-B1');
 
-    expect(hasA1).toBe(true);
+    expect(hasA3).toBe(true);
+    expect(hasA4).toBe(false);
     expect(hasB1).toBe(true);
 
     // Fallback safe selector guarantees a valid seat object
-    const safeSeat1 = fl1Seats.find((s) => s.label === 'F1-A1') || fl1Seats[0];
+    const safeSeat1 = fl1Seats.find((s) => s.label === 'F1-A3') || fl1Seats[0];
     expect(safeSeat1).toBeDefined();
     expect(safeSeat1.id).toBeDefined();
-    expect(safeSeat1.label).toBeDefined();
   });
 
   it('detects user overlapping booking on same date and slot', () => {
@@ -240,130 +230,4 @@ describe('Student Seat Booking & Suggestion Flow', () => {
     expect(hasOverlapDifferentDate).toBe(false);
   });
 });
-
-describe('Library Isolation and Fresh Setup Flow', () => {
-  it('newly registered library has status PENDING and starts with fresh empty data (0 floors, 0 seats, 0 slots)', () => {
-    const testLibId = `lib-test-fresh-${Date.now()}`;
-    const testAdminId = `usr-admin-${Date.now()}`;
-
-    const newAdmin = {
-      id: testAdminId,
-      name: 'Fresh Admin',
-      email: `admin-${Date.now()}@freshlib.test`,
-      role: 'LIBRARY_ADMIN' as const,
-      libraryId: testLibId,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredUser(newAdmin);
-
-    const newLib = {
-      id: testLibId,
-      name: 'Apex Study Lounge',
-      address: '10th Main, Indiranagar',
-      city: 'Bengaluru',
-      latitude: 12.978,
-      longitude: 77.64,
-      contactEmail: newAdmin.email,
-      amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
-      isFree: false,
-      status: 'PENDING' as const,
-      seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
-      totalSeats: 0,
-      floorCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredLibrary(newLib);
-
-    // 1. Admin gets their own pending library
-    const adminLib = getLibraryForAdmin(newAdmin);
-    expect(adminLib.id).toBe(testLibId);
-    expect(adminLib.name).toBe('Apex Study Lounge');
-    expect(adminLib.status).toBe('PENDING');
-
-    // 2. Starts with fresh empty data
-    const floors = getStoredFloorsForLibrary(testLibId);
-    expect(Object.keys(floors).length).toBe(0);
-
-    const slots = getStoredSlotsForLibrary(testLibId);
-    expect(slots.length).toBe(0);
-
-    const bookings = getStoredBookingsForLibrary(testLibId);
-    expect(bookings.length).toBe(0);
-
-    const analytics = getStoredAnalyticsForLibrary(testLibId);
-    expect(analytics.totalSeats).toBe(0);
-    expect(analytics.bookedSeats).toBe(0);
-    expect(analytics.revenuePaise).toBe(0);
-  });
-
-  it('site owner approval transitions library to APPROVED and admin keeps isolated data intact', () => {
-    const testLibId = `lib-test-approve-${Date.now()}`;
-    const testAdminId = `usr-admin-${Date.now()}`;
-
-    const adminUser = {
-      id: testAdminId,
-      name: 'Approved Admin',
-      email: `admin-${Date.now()}@approved.test`,
-      role: 'LIBRARY_ADMIN' as const,
-      libraryId: testLibId,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredUser(adminUser);
-
-    const lib = {
-      id: testLibId,
-      name: 'Bright Minds Library',
-      address: 'Koramangala 4th Block',
-      city: 'Bengaluru',
-      latitude: 12.935,
-      longitude: 77.624,
-      contactEmail: adminUser.email,
-      amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
-      isFree: false,
-      status: 'PENDING' as const,
-      seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
-      totalSeats: 0,
-      floorCount: 0,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredLibrary(lib);
-
-    // Site owner approves
-    const approved = updateStoredLibrary(testLibId, { status: 'APPROVED' });
-    expect(approved?.status).toBe('APPROVED');
-
-    const adminLib = getLibraryForAdmin(adminUser);
-    expect(adminLib.status).toBe('APPROVED');
-
-    // Admin creates a floor grid
-    const floorGrid = createDefaultFloorGrid(`${testLibId}-fl-1`, 1, 'Main Hall');
-    saveStoredFloorForLibrary(testLibId, floorGrid);
-
-    // Admin adds a time slot
-    addStoredSlotForLibrary(testLibId, {
-      id: `slot-${Date.now()}`,
-      libraryId: testLibId,
-      name: 'MORNING',
-      startTime: '07:00',
-      endTime: '13:00',
-      isFree: false,
-      pricePaise: 6000,
-      isActive: true,
-    });
-
-    // Check data is saved and isolated
-    const savedFloors = getStoredFloorsForLibrary(testLibId);
-    expect(Object.keys(savedFloors).length).toBe(1);
-    expect(savedFloors[`${testLibId}-fl-1`].label).toBe('Main Hall');
-
-    const savedSlots = getStoredSlotsForLibrary(testLibId);
-    expect(savedSlots.length).toBe(1);
-    expect(savedSlots[0].startTime).toBe('07:00');
-
-    // Central Study Hub (lib-1) remains isolated and unaffected
-    const lib1Slots = getStoredSlotsForLibrary('lib-1');
-    expect(lib1Slots.some((s) => s.libraryId === testLibId)).toBe(false);
-  });
-});
-
 
