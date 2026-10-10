@@ -2,26 +2,49 @@ import React, { useState } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
 import { mockSocketInstance } from '../realtime/socket';
-import { mockUsers } from '../mocks/db';
-import { Wrench, ChevronUp, ChevronDown, BellRing, RefreshCw, UserCheck } from 'lucide-react';
+import { getStoredUsers } from '../mocks/storage';
+import { Wrench, ChevronUp, ChevronDown, BellRing, UserCheck, RotateCcw } from 'lucide-react';
 
 export const DevPanel: React.FC = () => {
   const [collapsed, setCollapsed] = useState(true);
   const { alwaysFailNext, setAlwaysFailNext, addToast } = useUiStore();
   const { user, setAuth } = useAuthStore();
 
+  const allUsers = getStoredUsers();
+  const customUsers = allUsers.filter(
+    (u) =>
+      u.email.toLowerCase() !== 'owner@vidyaasana.test' &&
+      u.email.toLowerCase() !== 'admin@vidyaasana.test' &&
+      u.email.toLowerCase() !== 'pending@vidyaasana.test' &&
+      u.email.toLowerCase() !== 'student@vidyaasana.test'
+  );
+
   const handleSwitchAccount = (email: string) => {
-    const target = mockUsers.find((u) => u.email === email);
+    const target = allUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
     if (target) {
-      setAuth(target, `dev-token-${target.id}`);
+      setAuth(target, `dev-token-${target.id}-${Date.now()}`);
       addToast({
         type: 'info',
         title: 'Switched Role',
         message: `Active user changed to ${target.name} (${target.role})`,
       });
-      // reload or redirect
       window.location.reload();
     }
+  };
+
+  const handleResetData = () => {
+    localStorage.removeItem('va_mock_users');
+    localStorage.removeItem('va_mock_bookings');
+    localStorage.removeItem('va_mock_study_sessions');
+    localStorage.removeItem('va_mock_notifications');
+    localStorage.removeItem('va_mock_waitlist');
+    localStorage.removeItem('va_mock_preferences');
+    addToast({
+      type: 'warning',
+      title: 'Mock Data Reset',
+      message: 'Demo state restored to defaults.',
+    });
+    window.location.reload();
   };
 
   const triggerTestReminder = () => {
@@ -48,7 +71,7 @@ export const DevPanel: React.FC = () => {
         </button>
 
         {!collapsed && (
-          <div className="p-4 space-y-3.5 border-t border-slate-800 bg-slate-900/90 backdrop-blur-sm">
+          <div className="p-4 space-y-3.5 border-t border-slate-800 bg-slate-900/90 backdrop-blur-sm max-h-[80vh] overflow-y-auto">
             {/* Conflict toggle */}
             <div>
               <div className="flex items-center justify-between">
@@ -89,7 +112,7 @@ export const DevPanel: React.FC = () => {
             <div>
               <div className="text-slate-400 font-mono text-[11px] mb-1.5 flex items-center gap-1">
                 <UserCheck className="w-3 h-3 text-primary" />
-                <span>Quick Role Switcher (Current: {user?.role || 'Guest'})</span>
+                <span>Role Switcher (Active: {user?.name || 'Guest'})</span>
               </div>
               <div className="grid grid-cols-2 gap-1.5">
                 <button
@@ -114,9 +137,40 @@ export const DevPanel: React.FC = () => {
                   onClick={() => handleSwitchAccount('student@vidyaasana.test')}
                   className="p-1.5 bg-slate-800 hover:bg-slate-700 text-left rounded text-[11px] text-slate-200 truncate"
                 >
-                  👤 Student
+                  👤 Demo Student
                 </button>
               </div>
+
+              {customUsers.length > 0 && (
+                <div className="mt-2 pt-2 border-t border-slate-800">
+                  <div className="text-slate-400 text-[10px] mb-1 font-mono">Custom Registered Accounts:</div>
+                  <div className="space-y-1">
+                    {customUsers.map((cu) => (
+                      <button
+                        key={cu.id}
+                        onClick={() => handleSwitchAccount(cu.email)}
+                        className={`w-full p-1.5 text-left rounded text-[11px] truncate flex items-center justify-between ${
+                          user?.email === cu.email ? 'bg-primary/20 text-accent font-semibold' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                        }`}
+                      >
+                        <span className="truncate">{cu.name}</span>
+                        <span className="text-[10px] text-slate-400 ml-1">({cu.role})</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Reset button */}
+            <div className="pt-1">
+              <button
+                onClick={handleResetData}
+                className="w-full py-1.5 px-2 bg-slate-800/60 hover:bg-red-950/40 text-slate-400 hover:text-red-300 rounded text-[10px] flex items-center justify-center gap-1.5 transition-colors border border-slate-800"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset Local Mock Data</span>
+              </button>
             </div>
           </div>
         )}

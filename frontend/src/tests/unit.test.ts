@@ -1,6 +1,15 @@
 import { describe, it, expect } from 'vitest';
 import { getErrorMessage } from '../utils/errorMessages';
 import { createDefaultFloorGrid } from '../mocks/db';
+import {
+  saveStoredUser,
+  getUserDashboard,
+  getUserBookings,
+  saveStoredBooking,
+  addStoredStudySession,
+  getUserNotifications,
+  getUserPreferences,
+} from '../mocks/storage';
 
 describe('Error Code Mapper', () => {
   it('maps known API error codes to human friendly messages', () => {
@@ -56,5 +65,107 @@ describe('Slot Overlap Logic', () => {
     expect(isOverlapping('06:00', '12:00', '10:00', '14:00')).toBe(true);
     expect(isOverlapping('06:00', '12:00', '12:00', '17:00')).toBe(false);
     expect(isOverlapping('17:00', '21:00', '18:00', '20:00')).toBe(true);
+  });
+});
+
+describe('User Isolation and Storage', () => {
+  it('new user starts with 0 bookings, 0 focus hours, 0 streak and no demo data', () => {
+    const testUserId = `usr-test-fresh-${Date.now()}`;
+    saveStoredUser({
+      id: testUserId,
+      name: 'Fresh Student',
+      email: 'fresh@example.com',
+      role: 'USER',
+      createdAt: new Date().toISOString(),
+    });
+
+    const dashboard = getUserDashboard(testUserId);
+    expect(dashboard.stats.totalBookings).toBe(0);
+    expect(dashboard.stats.totalFocusHours).toBe(0);
+    expect(dashboard.stats.currentStreakDays).toBe(0);
+    expect(dashboard.upcomingBooking).toBeUndefined();
+    expect(dashboard.preferredSeat).toBeUndefined();
+
+    const bookings = getUserBookings(testUserId);
+    expect(bookings.length).toBe(0);
+
+    const notifications = getUserNotifications(testUserId);
+    expect(notifications.length).toBe(0);
+
+    const preferences = getUserPreferences(testUserId);
+    expect(preferences.seatType).toBe('INDIVIDUAL');
+  });
+
+  it('preserves and updates data when user creates a booking and study session', () => {
+    const testUserId = `usr-test-active-${Date.now()}`;
+    saveStoredUser({
+      id: testUserId,
+      name: 'Active Student',
+      email: 'active@example.com',
+      role: 'USER',
+      createdAt: new Date().toISOString(),
+    });
+
+    const seat = {
+      id: 'seat-test-1',
+      floorId: 'fl-1',
+      label: 'F1-Z9',
+      seatType: 'INDIVIDUAL' as const,
+      facing: 'N' as const,
+      attributes: { window: true, powerOutlet: true, quietZone: true, nearDoor: false },
+      isActive: true,
+    };
+
+    const slot = {
+      id: 'slot-morning',
+      libraryId: 'lib-1',
+      name: 'MORNING' as const,
+      startTime: '06:00',
+      endTime: '12:00',
+      isFree: true,
+      pricePaise: 0,
+      isActive: true,
+    };
+
+    saveStoredBooking({
+      id: `bk-${Date.now()}`,
+      code: 'VA-TEST1',
+      libraryId: 'lib-1',
+      libraryName: 'Central Study Hub',
+      seat,
+      floorLabel: 'Floor 1',
+      slot,
+      date: new Date().toISOString().split('T')[0],
+      status: 'CONFIRMED',
+      source: 'ONLINE',
+      userId: testUserId,
+      pricePaise: 0,
+      paymentStatus: 'FREE',
+      graceUntil: new Date().toISOString(),
+      arrivalConfirmed: false,
+      createdAt: new Date().toISOString(),
+    });
+
+    addStoredStudySession({
+      userId: testUserId,
+      type: 'POMODORO',
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      focusSeconds: 7200, // 2 hours
+    });
+
+    const updatedDashboard = getUserDashboard(testUserId);
+    expect(updatedDashboard.stats.totalBookings).toBe(1);
+    expect(updatedDashboard.stats.totalFocusHours).toBe(2);
+    expect(updatedDashboard.stats.currentStreakDays).toBe(1);
+    expect(updatedDashboard.upcomingBooking).toBeDefined();
+    expect(updatedDashboard.preferredSeat?.seat.label).toBe('F1-Z9');
+  });
+
+  it('preserves rich pre-seeded stats for demo student profile usr-4', () => {
+    const demoDashboard = getUserDashboard('usr-4');
+    expect(demoDashboard.stats.totalBookings).toBeGreaterThanOrEqual(1);
+    expect(demoDashboard.stats.longestStreakDays).toBe(9);
+    expect(demoDashboard.preferredSeat).toBeDefined();
   });
 });

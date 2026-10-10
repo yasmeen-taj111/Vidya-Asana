@@ -1,17 +1,34 @@
 import { http, HttpResponse } from 'msw';
 import {
-  mockUsers,
   mockLibraries,
   mockSlots,
   mockFloorGrids,
-  mockBookings,
-  mockWaitlist,
-  mockNotifications,
-  mockUserPreferences,
-  mockStudyReport,
-  mockLeaderboardEntries,
   createDefaultFloorGrid,
 } from './db';
+import {
+  resolveCurrentUser,
+  findStoredUserByEmail,
+  saveStoredUser,
+  getStoredUsers,
+  getStoredBookings,
+  saveStoredBooking,
+  getUserBookings,
+  updateStoredBooking,
+  getUserNotifications,
+  addStoredNotification,
+  markStoredNotificationRead,
+  markAllStoredNotificationsRead,
+  getUserWaitlist,
+  addStoredWaitlistEntry,
+  removeStoredWaitlistEntry,
+  updateStoredWaitlistEntry,
+  getUserPreferences,
+  saveUserPreferences,
+  addStoredStudySession,
+  getUserStudyReport,
+  getUserDashboard,
+  getStoredLeaderboard,
+} from './storage';
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry } from '../api/types';
 
@@ -20,8 +37,8 @@ const BASE = 'http://localhost:4000/api/v1';
 export const handlers = [
   // 4.1 Auth
   http.post(`${BASE}/auth/login`, async ({ request }) => {
-    const { email, password } = (await request.json()) as { email: string; password: string };
-    const user = mockUsers.find((u) => u.email.toLowerCase() === email.toLowerCase());
+    const { email } = (await request.json()) as { email: string; password: string };
+    const user = findStoredUserByEmail(email);
 
     if (!user) {
       return HttpResponse.json(
@@ -41,7 +58,7 @@ export const handlers = [
 
   http.post(`${BASE}/auth/register`, async ({ request }) => {
     const body = (await request.json()) as { name: string; email: string; phone?: string };
-    const existing = mockUsers.find((u) => u.email.toLowerCase() === body.email.toLowerCase());
+    const existing = findStoredUserByEmail(body.email);
     if (existing) {
       return HttpResponse.json(
         { success: false, error: { code: 'EMAIL_TAKEN', message: 'Email address already in use' } },
@@ -57,13 +74,23 @@ export const handlers = [
       phone: body.phone,
       createdAt: new Date().toISOString(),
     };
-    mockUsers.push(newUser);
+    saveStoredUser(newUser);
+
+    // Initial welcome notification for new student account
+    addStoredNotification(newUser.id, {
+      id: `notif-${Date.now()}`,
+      title: 'Welcome to Vidya Asana! 🎓',
+      body: 'Your account is ready. Discover quiet libraries, book ergonomic desks, and track focus streaks.',
+      type: 'SYSTEM',
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
 
     return HttpResponse.json({
       success: true,
       data: {
         user: newUser,
-        accessToken: `mock-token-${newUser.id}`,
+        accessToken: `mock-token-${newUser.id}-${Date.now()}`,
       },
     });
   }),
@@ -101,7 +128,7 @@ export const handlers = [
       libraryId: libId,
       createdAt: new Date().toISOString(),
     };
-    mockUsers.push(newAdmin);
+    saveStoredUser(newAdmin);
 
     const newLib = {
       id: libId,
@@ -118,7 +145,7 @@ export const handlers = [
       success: true,
       data: {
         user: newAdmin,
-        accessToken: `mock-token-${newAdmin.id}`,
+        accessToken: `mock-token-${newAdmin.id}-${Date.now()}`,
         library: newLib,
       },
     });
@@ -135,8 +162,9 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: { ok: true } });
   }),
 
-  http.get(`${BASE}/auth/me`, () => {
-    return HttpResponse.json({ success: true, data: { user: mockUsers[3] } });
+  http.get(`${BASE}/auth/me`, ({ request }) => {
+    const user = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
+    return HttpResponse.json({ success: true, data: { user } });
   }),
 
   // 4.2 Site Owner
@@ -164,7 +192,8 @@ export const handlers = [
   http.get(`${BASE}/owner/libraries/:id`, ({ params }) => {
     const lib = mockLibraries.find((l) => l.id === params.id);
     if (!lib) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Library not found' } }, { status: 404 });
-    const admin = mockUsers.find((u) => u.libraryId === lib.id) || mockUsers[1];
+    const allUsers = getStoredUsers();
+    const admin = allUsers.find((u) => u.libraryId === lib.id) || allUsers[1];
     return HttpResponse.json({ success: true, data: { library: lib, admin } });
   }),
 
@@ -314,7 +343,7 @@ export const handlers = [
     const slotId = url.searchParams.get('slotId');
     const status = url.searchParams.get('status');
 
-    let result = [...mockBookings];
+    let result = getStoredBookings();
     if (date) result = result.filter((b) => b.date === date);
     if (slotId) result = result.filter((b) => b.slot.id === slotId);
     if (status) result = result.filter((b) => b.status === status);
@@ -328,8 +357,8 @@ export const handlers = [
 
   http.post(`${BASE}/admin/checkin/scan`, async ({ request }) => {
     const { qrToken } = (await request.json()) as { qrToken: string };
-    // token format test: "qr-bk-101" or real token
-    const booking = mockBookings.find((b) => qrToken.includes(b.id) || qrToken.includes(b.code)) || mockBookings[0];
+    const allBookings = getStoredBookings();
+    const booking = allBookings.find((b) => qrToken.includes(b.id) || qrToken.includes(b.code)) || allBookings[0];
     if (!booking) {
       return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
     }
@@ -341,11 +370,14 @@ export const handlers = [
       });
     }
 
-    booking.status = 'CHECKED_IN';
-    booking.checkedInAt = new Date().toISOString();
+    const updated = updateStoredBooking(booking.id, {
+      status: 'CHECKED_IN',
+      checkedInAt: new Date().toISOString(),
+    }) || booking;
+
     return HttpResponse.json({
       success: true,
-      data: { booking, result: 'CHECKED_IN' },
+      data: { booking: updated, result: 'CHECKED_IN' },
     });
   }),
 
@@ -387,22 +419,22 @@ export const handlers = [
       createdAt: new Date().toISOString(),
     };
 
-    mockBookings.push(newBooking);
+    saveStoredBooking(newBooking);
     return HttpResponse.json({ success: true, data: newBooking });
   }),
 
   http.post(`${BASE}/admin/bookings/:id/release`, ({ params }) => {
-    const bk = mockBookings.find((b) => b.id === params.id);
-    if (!bk) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
-    bk.status = 'COMPLETED';
-    return HttpResponse.json({ success: true, data: bk });
+    const updated = updateStoredBooking(params.id as string, { status: 'COMPLETED' });
+    if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
   http.get(`${BASE}/admin/analytics/summary`, () => {
     const totalSeats = 32;
-    const bookedSeats = mockBookings.filter((b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN').length;
-    const availableSeats = totalSeats - bookedSeats;
-    const bookedPercent = Math.round((bookedSeats / totalSeats) * 100);
+    const allBookings = getStoredBookings();
+    const bookedSeats = allBookings.filter((b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN').length;
+    const availableSeats = Math.max(0, totalSeats - bookedSeats);
+    const bookedPercent = Math.min(100, Math.round((bookedSeats / totalSeats) * 100));
     const notBookedPercent = 100 - bookedPercent;
 
     return HttpResponse.json({
@@ -413,10 +445,10 @@ export const handlers = [
         availableSeats,
         bookedPercent,
         notBookedPercent,
-        checkedIn: mockBookings.filter((b) => b.status === 'CHECKED_IN').length,
+        checkedIn: allBookings.filter((b) => b.status === 'CHECKED_IN').length,
         noShows: 1,
-        walkIns: mockBookings.filter((b) => b.source === 'WALK_IN').length,
-        revenuePaise: 45000, // ₹450
+        walkIns: allBookings.filter((b) => b.source === 'WALK_IN').length,
+        revenuePaise: 45000,
       },
     });
   }),
@@ -507,13 +539,15 @@ export const handlers = [
     const url = new URL(request.url);
     const date = url.searchParams.get('date');
     const slotId = url.searchParams.get('slotId');
+    const currentUser = resolveCurrentUser(request);
+    const allBookings = getStoredBookings();
 
     // Clone grid and compute status
     const clonedGrid = JSON.parse(JSON.stringify(grid));
     if (date && slotId) {
       clonedGrid.cells.forEach((cell: any) => {
         if (cell.type === 'SEAT' && cell.seat) {
-          const booked = mockBookings.find(
+          const booked = allBookings.find(
             (b) =>
               b.seat.id === cell.seat.id &&
               b.date === date &&
@@ -521,7 +555,7 @@ export const handlers = [
               (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
           );
           if (booked) {
-            cell.status = booked.userId === 'usr-4' ? 'YOURS' : 'BOOKED';
+            cell.status = currentUser && booked.userId === currentUser.id ? 'YOURS' : 'BOOKED';
           } else {
             cell.status = 'AVAILABLE';
           }
@@ -532,8 +566,7 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: clonedGrid });
   }),
 
-  http.post(`${BASE}/libraries/:id/suggest-seats`, async ({ request }) => {
-    const body = (await request.json()) as any;
+  http.post(`${BASE}/libraries/:id/suggest-seats`, async () => {
     const suggestions: SeatSuggestion[] = [
       {
         seat: mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'F1-A3')!.seat!,
@@ -562,6 +595,8 @@ export const handlers = [
   http.post(`${BASE}/bookings`, async ({ request }) => {
     const { alwaysFailNext } = useUiStore.getState();
     const body = (await request.json()) as { libraryId: string; seatId: string; slotId: string; date: string };
+    const currentUser = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
+    const allBookings = getStoredBookings();
 
     // Simulate conflict demo if alwaysFailNext toggle is on
     if (alwaysFailNext) {
@@ -590,7 +625,7 @@ export const handlers = [
     }
 
     // Check if already booked
-    const existing = mockBookings.find(
+    const existing = allBookings.find(
       (b) =>
         b.seat.id === body.seatId &&
         b.slot.id === body.slotId &&
@@ -638,18 +673,19 @@ export const handlers = [
       return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Seat not found' } }, { status: 404 });
     }
 
+    const chosenSeat: Seat = seat;
     const newBooking: Booking = {
       id: `bk-${Date.now()}`,
       code: `VA-${Math.random().toString(36).substring(2, 7).toUpperCase()}`,
       libraryId: body.libraryId,
       libraryName: 'Central Study Hub',
-      seat,
+      seat: chosenSeat,
       floorLabel,
       slot,
       date: body.date,
       status: 'CONFIRMED',
       source: 'ONLINE',
-      userId: 'usr-4',
+      userId: currentUser.id,
       pricePaise: slot.pricePaise,
       paymentStatus: slot.isFree ? 'FREE' : 'PAID',
       graceUntil: `${body.date}T${slot.startTime}:00.000Z`,
@@ -657,7 +693,18 @@ export const handlers = [
       createdAt: new Date().toISOString(),
     };
 
-    mockBookings.push(newBooking);
+    saveStoredBooking(newBooking);
+
+    // Initial booking confirmation notification
+    addStoredNotification(currentUser.id, {
+      id: `notif-${Date.now()}`,
+      title: 'Booking Confirmed! 🪑',
+      body: `Desk ${chosenSeat.label} reserved for ${body.date} (${slot.name} slot). See you there!`,
+      type: 'BOOKING_CONFIRMED',
+      data: { bookingId: newBooking.id },
+      isRead: false,
+      createdAt: new Date().toISOString(),
+    });
 
     return HttpResponse.json({ success: true, data: newBooking });
   }),
@@ -666,8 +713,10 @@ export const handlers = [
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const upcoming = url.searchParams.get('upcoming');
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
 
-    let userBookings = mockBookings.filter((b) => b.userId === 'usr-4');
+    let userBookings = getUserBookings(userId);
     if (status) userBookings = userBookings.filter((b) => b.status === status);
     if (upcoming === 'true') {
       userBookings = userBookings.filter((b) => b.status === 'CONFIRMED' || b.status === 'CHECKED_IN');
@@ -681,14 +730,15 @@ export const handlers = [
   }),
 
   http.get(`${BASE}/bookings/:id`, ({ params }) => {
-    const bk = mockBookings.find((b) => b.id === params.id);
+    const bk = getStoredBookings().find((b) => b.id === params.id);
     if (!bk) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
     return HttpResponse.json({ success: true, data: bk });
   }),
 
   http.get(`${BASE}/bookings/:id/qr`, ({ params }) => {
-    const bk = mockBookings.find((b) => b.id === params.id) || mockBookings[0];
-    const qrToken = `qr-va-${bk.id}-${bk.libraryId}-${Date.now()}`;
+    const allBookings = getStoredBookings();
+    const bk = allBookings.find((b) => b.id === params.id) || allBookings[0];
+    const qrToken = `qr-va-${bk ? bk.id : 'demo'}-${bk ? bk.libraryId : 'lib-1'}-${Date.now()}`;
     return HttpResponse.json({
       success: true,
       data: {
@@ -700,22 +750,25 @@ export const handlers = [
   }),
 
   http.post(`${BASE}/bookings/:id/cancel`, ({ params }) => {
-    const bk = mockBookings.find((b) => b.id === params.id);
-    if (!bk) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
-    bk.status = 'CANCELLED';
-    bk.cancelledAt = new Date().toISOString();
-    return HttpResponse.json({ success: true, data: bk });
+    const updated = updateStoredBooking(params.id as string, {
+      status: 'CANCELLED',
+      cancelledAt: new Date().toISOString(),
+    });
+    if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
   http.post(`${BASE}/bookings/:id/confirm-arrival`, async ({ params, request }) => {
     const { coming } = (await request.json()) as { coming: boolean };
-    const bk = mockBookings.find((b) => b.id === params.id);
+    const bk = getStoredBookings().find((b) => b.id === params.id);
     if (!bk) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
 
     if (!coming) {
-      bk.status = 'CANCELLED';
-      bk.cancelledAt = new Date().toISOString();
-      return HttpResponse.json({ success: true, data: bk });
+      const updated = updateStoredBooking(params.id as string, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+      });
+      return HttpResponse.json({ success: true, data: updated });
     }
 
     if (bk.arrivalConfirmed) {
@@ -725,13 +778,17 @@ export const handlers = [
       );
     }
 
-    bk.arrivalConfirmed = true;
-    bk.graceUntil = new Date(new Date(bk.graceUntil).getTime() + 30 * 60 * 1000).toISOString();
-    return HttpResponse.json({ success: true, data: bk });
+    const updated = updateStoredBooking(params.id as string, {
+      arrivalConfirmed: true,
+      graceUntil: new Date(new Date(bk.graceUntil).getTime() + 30 * 60 * 1000).toISOString(),
+    });
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
   // 4.6 Waitlist
   http.post(`${BASE}/waitlist`, async ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
     const body = (await request.json()) as { seatId: string; slotId: string; date: string };
     const slot = mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
     const seat = mockFloorGrids['fl-1'].cells.find((c) => c.seat?.id === body.seatId)?.seat || mockFloorGrids['fl-1'].cells[0].seat!;
@@ -747,24 +804,30 @@ export const handlers = [
       position: 1,
       createdAt: new Date().toISOString(),
     };
-    mockWaitlist.push(newWait);
+    addStoredWaitlistEntry(userId, newWait);
     return HttpResponse.json({ success: true, data: newWait });
   }),
 
-  http.get(`${BASE}/waitlist/me`, () => {
-    return HttpResponse.json({ success: true, data: mockWaitlist });
+  http.get(`${BASE}/waitlist/me`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    return HttpResponse.json({ success: true, data: getUserWaitlist(userId) });
   }),
 
-  http.delete(`${BASE}/waitlist/:id`, ({ params }) => {
-    const idx = mockWaitlist.findIndex((w) => w.id === params.id);
-    if (idx !== -1) mockWaitlist.splice(idx, 1);
+  http.delete(`${BASE}/waitlist/:id`, ({ params, request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    removeStoredWaitlistEntry(params.id as string, userId);
     return HttpResponse.json({ success: true, data: { ok: true } });
   }),
 
-  http.post(`${BASE}/waitlist/:id/claim`, ({ params }) => {
-    const item = mockWaitlist.find((w) => w.id === params.id);
+  http.post(`${BASE}/waitlist/:id/claim`, ({ params, request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const list = getUserWaitlist(userId);
+    const item = list.find((w) => w.id === params.id);
     if (!item) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Waitlist entry not found' } }, { status: 404 });
-    item.status = 'CLAIMED';
+    updateStoredWaitlistEntry(params.id as string, { status: 'CLAIMED' });
 
     const newBooking: Booking = {
       id: `bk-${Date.now()}`,
@@ -777,7 +840,7 @@ export const handlers = [
       date: item.date,
       status: 'CONFIRMED',
       source: 'ONLINE',
-      userId: 'usr-4',
+      userId,
       pricePaise: item.slot.pricePaise,
       paymentStatus: item.slot.isFree ? 'FREE' : 'PAID',
       graceUntil: `${item.date}T${item.slot.startTime}:00.000Z`,
@@ -785,78 +848,99 @@ export const handlers = [
       createdAt: new Date().toISOString(),
     };
 
-    mockBookings.push(newBooking);
+    saveStoredBooking(newBooking);
     return HttpResponse.json({ success: true, data: newBooking });
   }),
 
   // 4.7 User Dashboard, Study, Leaderboard
-  http.get(`${BASE}/users/me/dashboard`, () => {
-    const upcoming = mockBookings.find((b) => b.userId === 'usr-4' && (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN'));
-    const preferredSeat = mockFloorGrids['fl-1'].cells.find((c) => c.seat?.label === 'F1-A1')?.seat;
-
+  http.get(`${BASE}/users/me/dashboard`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const dashboard = getUserDashboard(userId);
     return HttpResponse.json({
       success: true,
-      data: {
-        upcomingBooking: upcoming,
-        preferredSeat: preferredSeat
-          ? {
-              seat: preferredSeat,
-              libraryId: 'lib-1',
-              libraryName: 'Central Study Hub',
-              timesBooked: 7,
-            }
-          : undefined,
-        stats: {
-          totalBookings: 12,
-          totalFocusHours: 38,
-          currentStreakDays: 4,
-          longestStreakDays: 9,
-        },
-      },
+      data: dashboard,
     });
   }),
 
-  http.get(`${BASE}/users/me/preferences`, () => {
-    return HttpResponse.json({ success: true, data: mockUserPreferences });
+  http.get(`${BASE}/users/me/preferences`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    return HttpResponse.json({ success: true, data: getUserPreferences(userId) });
   }),
 
   http.put(`${BASE}/users/me/preferences`, async ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
     const body = (await request.json()) as any;
-    Object.assign(mockUserPreferences, body);
-    return HttpResponse.json({ success: true, data: mockUserPreferences });
+    const updated = saveUserPreferences(userId, body);
+    return HttpResponse.json({ success: true, data: updated });
   }),
 
-  http.post(`${BASE}/study/sessions`, () => {
-    return HttpResponse.json({ success: true, data: { id: `ss-${Date.now()}` } });
+  http.post(`${BASE}/study/sessions`, async ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const body = (await request.json()) as {
+      type: 'POMODORO' | 'CUSTOM' | 'STOPWATCH';
+      startedAt: string;
+      endedAt: string;
+      focusSeconds: number;
+      breakSeconds?: number;
+      bookingId?: string;
+    };
+    const session = addStoredStudySession({
+      userId,
+      type: body.type,
+      startedAt: body.startedAt,
+      endedAt: body.endedAt,
+      focusSeconds: body.focusSeconds,
+      breakSeconds: body.breakSeconds,
+      bookingId: body.bookingId,
+    });
+    return HttpResponse.json({ success: true, data: { id: session.id } });
   }),
 
-  http.get(`${BASE}/study/reports`, () => {
-    return HttpResponse.json({ success: true, data: mockStudyReport });
+  http.get(`${BASE}/study/reports`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const url = new URL(request.url);
+    const range = (url.searchParams.get('range') || 'week') as 'week' | 'month';
+    const report = getUserStudyReport(userId, range);
+    return HttpResponse.json({ success: true, data: report });
   }),
 
-  http.get(`${BASE}/study/leaderboard`, () => {
+  http.get(`${BASE}/study/leaderboard`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const entries = getStoredLeaderboard(userId);
+    const myEntry = entries.find((e) => e.userId === userId);
     return HttpResponse.json({
       success: true,
       data: {
-        entries: mockLeaderboardEntries,
-        myRank: 3,
+        entries,
+        myRank: myEntry?.rank || 1,
       },
     });
   }),
 
   // 4.8 Notifications & Chat
-  http.get(`${BASE}/notifications`, () => {
-    return HttpResponse.json({ success: true, data: mockNotifications });
+  http.get(`${BASE}/notifications`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    return HttpResponse.json({ success: true, data: getUserNotifications(userId) });
   }),
 
-  http.post(`${BASE}/notifications/:id/read`, ({ params }) => {
-    const n = mockNotifications.find((x) => x.id === params.id);
-    if (n) n.isRead = true;
+  http.post(`${BASE}/notifications/:id/read`, ({ params, request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    markStoredNotificationRead(params.id as string, userId);
     return HttpResponse.json({ success: true, data: { ok: true } });
   }),
 
-  http.post(`${BASE}/notifications/read-all`, () => {
-    mockNotifications.forEach((n) => (n.isRead = true));
+  http.post(`${BASE}/notifications/read-all`, ({ request }) => {
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    markAllStoredNotificationsRead(userId);
     return HttpResponse.json({ success: true, data: { ok: true } });
   }),
 
