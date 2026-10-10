@@ -3,6 +3,9 @@ import { generateUUID, generateBookingCode } from '../src/utils/ids';
 import { generateQrToken, verifyQrToken } from '../src/utils/qr';
 import { scoreSeat, scoreLibrary, calculateHaversineDistance } from '../src/utils/scoring';
 import { generateChatResponse } from '../src/modules/chat/chatEngine';
+import { bookingRateLimiter, walkInLimiter } from '../src/middleware/rateLimit';
+import { withTransaction, pool } from '../src/config/db';
+import { AppError } from '../src/utils/errors';
 
 describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
   it('generates unique UUIDs and formatted booking codes', () => {
@@ -138,6 +141,96 @@ describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
       const res = generateChatResponse('i dont wanna hv streaks');
       expect(res.reply).toContain('optional');
       expect(res.reply).toContain('zero penalties');
+    });
+  });
+
+  describe('Seat Reservation Rate Limiting & ACID Properties', () => {
+    it('defines and equips seat reservation rate limiter middleware', () => {
+      expect(typeof bookingRateLimiter).toBe('function');
+      expect(bookingRateLimiter.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('defines and equips walk-in allocation rate limiter middleware', () => {
+      expect(typeof walkInLimiter).toBe('function');
+      expect(walkInLimiter.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('guarantees ACID atomicity by rolling back on failure and releasing connection', async () => {
+      let rolledBack = false;
+      let released = false;
+      let committed = false;
+
+      const mockConn = {
+        beginTransaction: async () => {},
+        commit: async () => {
+          committed = true;
+        },
+        rollback: async () => {
+          rolledBack = true;
+        },
+        release: () => {
+          released = true;
+        },
+        query: async () => [[], undefined],
+        execute: async () => [{ affectedRows: 1 } as any, undefined],
+      };
+
+      const originalGetConnection = pool.getConnection;
+      pool.getConnection = (async () => mockConn as any) as any;
+
+      try {
+        await expect(
+          withTransaction(async (tx) => {
+            await tx.execute('INSERT INTO bookings ...');
+            throw new AppError('SEAT_UNAVAILABLE', 'Seat is taken', 409);
+          })
+        ).rejects.toThrow('Seat is taken');
+
+        expect(rolledBack).toBe(true);
+        expect(committed).toBe(false);
+        expect(released).toBe(true);
+      } finally {
+        pool.getConnection = originalGetConnection;
+      }
+    });
+
+    it('guarantees ACID durability by committing transaction on success and releasing connection', async () => {
+      let committed = false;
+      let released = false;
+      let rolledBack = false;
+
+      const mockConn = {
+        beginTransaction: async () => {},
+        commit: async () => {
+          committed = true;
+        },
+        rollback: async () => {
+          rolledBack = true;
+        },
+        release: () => {
+          released = true;
+        },
+        query: async () => [[{ id: 'bk-123', status: 'CONFIRMED' }], undefined],
+        execute: async () => [{ affectedRows: 1 } as any, undefined],
+      };
+
+      const originalGetConnection = pool.getConnection;
+      pool.getConnection = (async () => mockConn as any) as any;
+
+      try {
+        const result = await withTransaction(async (tx) => {
+          await tx.execute('INSERT INTO bookings ...');
+          const rows = await tx.query<any[]>('SELECT * FROM bookings WHERE id = ?', ['bk-123']);
+          return rows[0];
+        });
+
+        expect(result).toEqual({ id: 'bk-123', status: 'CONFIRMED' });
+        expect(committed).toBe(true);
+        expect(rolledBack).toBe(false);
+        expect(released).toBe(true);
+      } finally {
+        pool.getConnection = originalGetConnection;
+      }
     });
   });
 });

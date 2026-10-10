@@ -271,6 +271,12 @@ export const Book: React.FC = () => {
           setConflictingBookingId(err.details?.conflictingBookingId);
           setConflictAlternatives([]);
           setShowConflictModal(true);
+        } else if (err.code === 'RATE_LIMITED') {
+          addToast({
+            type: 'error',
+            title: 'Rate Limit Reached',
+            message: err.message || 'Too many reservation attempts. Please wait a moment before trying again.',
+          });
         } else {
           addToast({
             type: 'error',

@@ -693,3 +693,43 @@ export function getStoredAnalyticsForLibrary(libraryId: string) {
     revenuePaise,
   };
 }
+
+// -------------------------------------------------------------
+// 14. Seat Reservation Rate Limiter & ACID Invariant Controller
+// -------------------------------------------------------------
+const bookingAttemptsMap = new Map<string, number[]>();
+
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  retryAfter?: number;
+}
+
+export function checkBookingRateLimit(
+  userId: string,
+  limit = 10,
+  windowMs = 60000
+): RateLimitResult {
+  const now = Date.now();
+  const history = bookingAttemptsMap.get(userId) || [];
+  const recent = history.filter((t) => now - t < windowMs);
+
+  if (recent.length >= limit) {
+    const oldest = recent[0];
+    const retryAfter = Math.max(1, Math.ceil((windowMs - (now - oldest)) / 1000));
+    bookingAttemptsMap.set(userId, recent);
+    return { allowed: false, remaining: 0, retryAfter };
+  }
+
+  recent.push(now);
+  bookingAttemptsMap.set(userId, recent);
+  return { allowed: true, remaining: limit - recent.length };
+}
+
+export function resetBookingRateLimit(userId?: string): void {
+  if (userId) {
+    bookingAttemptsMap.delete(userId);
+  } else {
+    bookingAttemptsMap.clear();
+  }
+}

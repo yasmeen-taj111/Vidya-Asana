@@ -32,6 +32,49 @@ export async function execute(sql: string, params: any[] = []): Promise<mysql.Re
   return result as mysql.ResultSetHeader;
 }
 
+export interface TransactionClient {
+  query<T = any>(sql: string, params?: any[]): Promise<T>;
+  execute(sql: string, params?: any[]): Promise<mysql.ResultSetHeader>;
+  connection: mysql.PoolConnection;
+}
+
+/**
+ * Executes a callback within a managed MySQL transaction guaranteeing ACID properties.
+ * Automatically performs BEGIN TRANSACTION, COMMIT on success, ROLLBACK on error,
+ * and releases the connection back to the pool in all cases.
+ */
+export async function withTransaction<T>(
+  callback: (tx: TransactionClient) => Promise<T>
+): Promise<T> {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const tx: TransactionClient = {
+      query: async <R = any>(sql: string, params: any[] = []): Promise<R> => {
+        const [rows] = await conn.query(sql, params);
+        return rows as unknown as R;
+      },
+      execute: async (sql: string, params: any[] = []): Promise<mysql.ResultSetHeader> => {
+        const [result] = await conn.execute(sql, params);
+        return result as mysql.ResultSetHeader;
+      },
+      connection: conn,
+    };
+    const result = await callback(tx);
+    await conn.commit();
+    return result;
+  } catch (error) {
+    try {
+      await conn.rollback();
+    } catch (rbErr) {
+      console.error('[DB] Rollback failed:', rbErr);
+    }
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 export async function testDbConnection(): Promise<boolean> {
   try {
     const conn = await pool.getConnection();

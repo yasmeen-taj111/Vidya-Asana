@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth';
 import { requireRole, requireApprovedLibrary } from '../../middleware/rbac';
-import { pool, query, execute } from '../../config/db';
-import { sendSuccess } from '../../utils/response';
+import { pool, query, execute, withTransaction } from '../../config/db';
+import { sendSuccess, sendError } from '../../utils/response';
+import { walkInLimiter } from '../../middleware/rateLimit';
 import { AppError } from '../../utils/errors';
 import { mapLibraryRow } from '../owner/routes';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
@@ -840,58 +841,93 @@ adminRouter.post('/checkin/scan', async (req, res, next) => {
 });
 
 // POST /admin/bookings/walk-in (Idempotency-Key)
-adminRouter.post('/bookings/walk-in', async (req, res, next) => {
+adminRouter.post('/bookings/walk-in', walkInLimiter, async (req, res, next) => {
   try {
     const { seatId, slotId, date, guestName } = req.body;
     const libraryId = req.user!.libraryId!;
 
-    const [seat] = await query('SELECT * FROM seats WHERE id = ? AND library_id = ?', [seatId, libraryId]);
-    if (!seat) throw new AppError('NOT_FOUND', 'Seat not found', 404);
+    if (!seatId || !slotId || !date) {
+      return sendError(res, 'VALIDATION_ERROR', 'seatId, slotId, and date are required', 422);
+    }
 
-    const [slot] = await query('SELECT * FROM time_slots WHERE id = ? AND library_id = ?', [slotId, libraryId]);
-    if (!slot) throw new AppError('NOT_FOUND', 'Slot not found', 404);
+    // Execute walk-in reservation within an ACID Transaction
+    const walkInRecord = await withTransaction(async (tx) => {
+      // 1. Lock seat row FOR UPDATE
+      const [seat] = await tx.query<any[]>(
+        'SELECT * FROM seats WHERE id = ? AND library_id = ? AND is_active = 1 FOR UPDATE',
+        [seatId, libraryId]
+      );
+      if (!seat) throw new AppError('NOT_FOUND', 'Seat not found or inactive', 404);
 
-    const code = generateBookingCode();
-    const id = generateUUID();
+      // 2. Lock slot row FOR UPDATE
+      const [slot] = await tx.query<any[]>(
+        'SELECT * FROM time_slots WHERE id = ? AND library_id = ? AND is_active = 1 FOR UPDATE',
+        [slotId, libraryId]
+      );
+      if (!slot) throw new AppError('NOT_FOUND', 'Time slot not found or inactive', 404);
 
-    await execute(
-      `INSERT INTO bookings (
-        id, code, library_id, seat_id, slot_id, guest_name, booking_date,
-        status, source, price_paise, payment_status, grace_until, arrival_confirmed, qr_secret, checked_in_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CHECKED_IN', 'WALK_IN', ?, ?, NOW(), 1, ?, NOW())`,
-      [
+      // 3. Consistency invariant: Check active conflicting booking FOR UPDATE
+      const activeBookings = await tx.query<any[]>(
+        `SELECT id FROM bookings
+         WHERE seat_id = ? AND slot_id = ? AND booking_date = ?
+           AND status IN ('CONFIRMED', 'CHECKED_IN')
+         FOR UPDATE`,
+        [seatId, slotId, date]
+      );
+      if (activeBookings.length > 0) {
+        throw new AppError('SEAT_UNAVAILABLE', 'This seat is already occupied or reserved for the selected session.', 409);
+      }
+
+      const code = generateBookingCode();
+      const id = generateUUID();
+
+      // 4. Atomicity: Insert walk-in booking record
+      await tx.execute(
+        `INSERT INTO bookings (
+          id, code, library_id, seat_id, slot_id, guest_name, booking_date,
+          status, source, price_paise, payment_status, grace_until, arrival_confirmed, qr_secret, checked_in_at, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CHECKED_IN', 'WALK_IN', ?, ?, NOW(), 1, ?, NOW(), NOW())`,
+        [
+          id,
+          code,
+          libraryId,
+          seatId,
+          slotId,
+          guestName || 'Walk-in Guest',
+          date,
+          slot.price_paise,
+          slot.is_free ? 'FREE' : 'PAID',
+          generateUUID(),
+        ]
+      );
+
+      return {
         id,
         code,
         libraryId,
-        seatId,
-        slotId,
-        guestName || 'Walk-in Guest',
+        seat: { id: seat.id, label: seat.label, seatType: seat.seat_type },
+        floorLabel: 'Floor',
+        slot: { id: slot.id, name: slot.name, startTime: slot.start_time, endTime: slot.end_time },
         date,
-        slot.price_paise,
-        slot.is_free ? 'FREE' : 'PAID',
-        generateUUID(),
-      ]
-    );
+        status: 'CHECKED_IN' as const,
+        source: 'WALK_IN' as const,
+        guestName: guestName || 'Walk-in Guest',
+        pricePaise: slot.price_paise,
+      };
+    });
 
+    // Durability & Side effects: Transaction committed successfully
     emitSeatUpdated(libraryId, seatId, slotId, date, 'OCCUPIED');
-
-    const walkInRecord = {
-      id,
-      code,
-      libraryId,
-      seat: { id: seat.id, label: seat.label, seatType: seat.seat_type },
-      floorLabel: 'Floor',
-      slot: { id: slot.id, name: slot.name, startTime: slot.start_time, endTime: slot.end_time },
-      date,
-      status: 'CHECKED_IN' as const,
-      source: 'WALK_IN' as const,
-      guestName: guestName || 'Walk-in Guest',
-      pricePaise: slot.price_paise,
-    };
     emitBookingUpdated(libraryId, walkInRecord);
 
     sendSuccess(res, walkInRecord, undefined, 201);
-  } catch (err) {
+  } catch (err: any) {
+    if (err instanceof AppError) {
+      return sendError(res, err.code, err.message, err.status, err.details);
+    }
+    if (err.code === 'ER_DUP_ENTRY') {
+      return sendError(res, 'SEAT_UNAVAILABLE', 'This seat was just reserved by another student.', 409);
+    }
     next(err);
   }
 });

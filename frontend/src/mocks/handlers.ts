@@ -44,6 +44,7 @@ import {
   deleteStoredSlotForLibrary,
   getStoredBookingsForLibrary,
   getStoredAnalyticsForLibrary,
+  checkBookingRateLimit,
 } from './storage';
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell } from '../api/types';
@@ -775,6 +776,54 @@ export const handlers = [
     const { alwaysFailNext } = useUiStore.getState();
     const body = (await request.json()) as { libraryId: string; seatId: string; slotId: string; date: string };
     const currentUser = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
+
+    // Rate Limiting Invariant: Max 10 attempts per minute per user
+    const rateLimit = checkBookingRateLimit(currentUser.id, 10, 60000);
+    if (!rateLimit.allowed) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many booking attempts. Please wait a moment before trying again.',
+            details: { retryAfter: rateLimit.retryAfter },
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfter || 60),
+            'RateLimit-Limit': '10',
+            'RateLimit-Remaining': '0',
+          },
+        }
+      );
+    }
+
+    // Waitlist Hold Invariant: Held seat cannot be reserved by another user
+    const waitlist = getStoredWaitlist();
+    const heldByOther = waitlist.find(
+      (w) =>
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        w.status === 'NOTIFIED' &&
+        w.userId !== currentUser.id &&
+        (!w.claimExpiresAt || new Date(w.claimExpiresAt) > new Date())
+    );
+    if (heldByOther) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'SEAT_HELD_FOR_WAITLIST',
+            message: 'This seat is currently held for a waitlisted student.',
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     const allBookings = getStoredBookings();
 
     // Check if user already has an active booking for this time slot on this date
@@ -929,6 +978,19 @@ export const handlers = [
     };
 
     saveStoredBooking(newBooking);
+
+    // Atomicity: If user held a waitlist spot for this seat and slot, transition status to CLAIMED
+    const wlEntry = waitlist.find(
+      (w) =>
+        w.userId === currentUser.id &&
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        (w.status === 'NOTIFIED' || w.status === 'WAITING')
+    );
+    if (wlEntry) {
+      updateStoredWaitlistEntry(wlEntry.id, { status: 'CLAIMED' });
+    }
 
     // Initial booking confirmation notification
     addStoredNotification(currentUser.id, {
@@ -1188,9 +1250,49 @@ export const handlers = [
   http.post(`${BASE}/waitlist/:id/claim`, ({ params, request }) => {
     const currentUser = resolveCurrentUser(request);
     const userId = currentUser?.id || 'usr-4';
+
+    // Rate Limiting Invariant
+    const rateLimit = checkBookingRateLimit(userId, 10, 60000);
+    if (!rateLimit.allowed) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many booking attempts. Please wait a moment before trying again.',
+            details: { retryAfter: rateLimit.retryAfter },
+          },
+        },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfter || 60) } }
+      );
+    }
+
     const list = getUserWaitlist(userId);
     const item = list.find((w) => w.id === params.id);
     if (!item) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Waitlist entry not found' } }, { status: 404 });
+
+    // Consistency Invariant: Ensure seat is not already booked
+    const allBookings = getStoredBookings();
+    const existing = allBookings.find(
+      (b) =>
+        b.seat.id === item.seat.id &&
+        b.slot.id === item.slot.id &&
+        b.date === item.date &&
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+    if (existing) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'SEAT_UNAVAILABLE',
+            message: 'This seat was just claimed by another student.',
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     updateStoredWaitlistEntry(params.id as string, { status: 'CLAIMED' });
 
     const newBooking: Booking = {
