@@ -8,7 +8,7 @@ import { mapLibraryRow } from '../owner/routes';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { verifyQrToken } from '../../utils/qr';
 import { notifyNextInWaitlist } from '../waitlist/service';
-import { emitSeatUpdated, emitBookingCheckedIn, emitBookingUpdated } from '../../realtime/socket';
+import { emitSeatUpdated, emitBookingCheckedIn, emitBookingUpdated, emitBookingReleased } from '../../realtime/socket';
 import { createNotification } from '../notifications/service';
 import { Parser } from 'json2csv';
 import PDFDocument from 'pdfkit';
@@ -896,7 +896,102 @@ adminRouter.post('/bookings/walk-in', async (req, res, next) => {
   }
 });
 
-// POST /admin/bookings/:id/release
+// PATCH /admin/bookings/:id/status
+adminRouter.patch('/bookings/:id/status', async (req, res, next) => {
+  try {
+    const { status, reason } = req.body;
+    const libraryId = req.user!.libraryId!;
+
+    const validStatuses = ['CHECKED_IN', 'COMPLETED', 'CANCELLED', 'NO_SHOW'];
+    if (!validStatuses.includes(status)) {
+      throw new AppError('BAD_REQUEST', `Invalid status. Must be one of: ${validStatuses.join(', ')}`, 400);
+    }
+
+    const [b] = await query('SELECT b.*, l.name as library_name, s.label as seat_label FROM bookings b JOIN libraries l ON b.library_id = l.id JOIN seats s ON b.seat_id = s.id WHERE b.id = ? AND b.library_id = ?', [req.params.id, libraryId]);
+    if (!b) throw new AppError('NOT_FOUND', 'Booking not found', 404);
+
+    const dateStr = typeof b.booking_date === 'string' ? b.booking_date.substring(0, 10) : new Date(b.booking_date).toISOString().substring(0, 10);
+
+    if (status === 'COMPLETED') {
+      await execute('UPDATE bookings SET status = "COMPLETED" WHERE id = ?', [req.params.id]);
+      await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
+      emitSeatUpdated(libraryId, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+      const updated = { ...b, status: 'COMPLETED' };
+      emitBookingUpdated(libraryId, updated);
+      if (b.user_id) {
+        createNotification({
+          userId: b.user_id,
+          type: 'SYSTEM',
+          title: 'Session Completed',
+          body: `Your study session at ${b.library_name || 'the library'} has concluded. Thank you!`,
+          data: { bookingId: b.id },
+        }).catch(() => {});
+      }
+      return sendSuccess(res, updated);
+    }
+
+    if (status === 'CANCELLED') {
+      await execute('UPDATE bookings SET status = "CANCELLED", cancelled_at = NOW() WHERE id = ?', [req.params.id]);
+      await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
+      emitSeatUpdated(libraryId, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+      const updated = { ...b, status: 'CANCELLED' };
+      emitBookingUpdated(libraryId, updated);
+      if (b.user_id) {
+        createNotification({
+          userId: b.user_id,
+          type: 'SYSTEM',
+          title: 'Booking Cancelled',
+          body: reason ? `Your booking was cancelled: ${reason}` : 'Your booking was cancelled by library administration.',
+          data: { bookingId: b.id },
+        }).catch(() => {});
+      }
+      return sendSuccess(res, updated);
+    }
+
+    if (status === 'CHECKED_IN') {
+      await execute('UPDATE bookings SET status = "CHECKED_IN", checked_in_at = NOW(), arrival_confirmed = 1 WHERE id = ?', [req.params.id]);
+      emitSeatUpdated(libraryId, b.seat_id, b.slot_id, dateStr, 'OCCUPIED');
+      const updated = { ...b, status: 'CHECKED_IN' };
+      emitBookingCheckedIn(libraryId, updated);
+      emitBookingUpdated(libraryId, updated);
+      if (b.user_id) {
+        createNotification({
+          userId: b.user_id,
+          type: 'SYSTEM',
+          title: 'Checked In Successfully! 🎒',
+          body: `You are checked in for Seat ${b.seat_label || ''}. Happy studying!`,
+          data: { bookingId: b.id },
+        }).catch(() => {});
+      }
+      return sendSuccess(res, updated);
+    }
+
+    if (status === 'NO_SHOW') {
+      await execute('UPDATE bookings SET status = "NO_SHOW" WHERE id = ?', [req.params.id]);
+      await notifyNextInWaitlist(b.seat_id, b.slot_id, dateStr);
+      emitSeatUpdated(libraryId, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
+      const updated = { ...b, status: 'NO_SHOW' };
+      emitBookingUpdated(libraryId, updated);
+      if (b.user_id) {
+        emitBookingReleased(b.user_id, { bookingId: b.id, reason: 'CANCELLED_BY_ADMIN' });
+        createNotification({
+          userId: b.user_id,
+          type: 'NO_SHOW',
+          title: 'Marked as No-Show',
+          body: 'Your reservation was marked as No-Show by library staff and released.',
+          data: { bookingId: b.id },
+        }).catch(() => {});
+      }
+      return sendSuccess(res, updated);
+    }
+
+    sendSuccess(res, { ...b, status });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /admin/bookings/:id/release (alias for COMPLETED status)
 adminRouter.post('/bookings/:id/release', async (req, res, next) => {
   try {
     const [b] = await query('SELECT * FROM bookings WHERE id = ? AND library_id = ?', [req.params.id, req.user!.libraryId]);
@@ -936,8 +1031,14 @@ adminRouter.get('/analytics/summary', async (req, res, next) => {
     const [seats] = await query(seatQuery, seatQueryParams);
     const totalSeats = parseInt(seats.total || '0', 10);
 
-    // 2. Build date condition
-    let dateCondition = 'b.booking_date = CURDATE()';
+    // 2. Build date condition (fallback to local server today date)
+    const now = new Date();
+    const curYear = now.getFullYear();
+    const curMonth = String(now.getMonth() + 1).padStart(2, '0');
+    const curDay = String(now.getDate()).padStart(2, '0');
+    const serverToday = `${curYear}-${curMonth}-${curDay}`;
+
+    let dateCondition = 'b.booking_date = ?';
     const filterParams: any[] = [];
 
     if (from && to) {
@@ -946,6 +1047,8 @@ adminRouter.get('/analytics/summary', async (req, res, next) => {
     } else if (date) {
       dateCondition = 'b.booking_date = ?';
       filterParams.push(date);
+    } else {
+      filterParams.push(serverToday);
     }
 
     let slotCondition = '';
@@ -1100,7 +1203,13 @@ adminRouter.get('/analytics/timeseries', async (req, res, next) => {
     const [seats] = await query(seatQuery, seatParams);
     const totalSeats = parseInt(seats.total || '0', 10);
 
-    let dateSql = 'b.booking_date = CURDATE()';
+    const nowTs = new Date();
+    const tsYear = nowTs.getFullYear();
+    const tsMonth = String(nowTs.getMonth() + 1).padStart(2, '0');
+    const tsDay = String(nowTs.getDate()).padStart(2, '0');
+    const serverTodayTs = `${tsYear}-${tsMonth}-${tsDay}`;
+
+    let dateSql = 'b.booking_date = ?';
     const dateParams: any[] = [];
     if (from && to) {
       dateSql = 'b.booking_date >= ? AND b.booking_date <= ?';
@@ -1108,6 +1217,8 @@ adminRouter.get('/analytics/timeseries', async (req, res, next) => {
     } else if (date) {
       dateSql = 'b.booking_date = ?';
       dateParams.push(date);
+    } else {
+      dateParams.push(serverTodayTs);
     }
 
     if (groupBy === 'day') {
