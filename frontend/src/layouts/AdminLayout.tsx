@@ -15,18 +15,20 @@ import {
   LogOut,
   AlertTriangle,
   XCircle,
-  ShieldCheck,
   RotateCw,
 } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
+import { useUiStore } from '../store/uiStore';
 
 export const AdminLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
+  const { addToast } = useUiStore();
   const location = useLocation();
   const navigate = useNavigate();
   const [library, setLibrary] = useState<Library | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     adminApi
@@ -41,6 +43,41 @@ export const AdminLayout: React.FC = () => {
     navigate('/login');
   };
 
+  const handleCheckStatus = async () => {
+    setChecking(true);
+    try {
+      const data = await adminApi.getLibrary();
+      setLibrary(data);
+      if (data.status === 'APPROVED') {
+        addToast({
+          type: 'success',
+          title: 'Library Approved! 🎉',
+          message: 'Your library registration has been verified and approved. Dashboard unlocked!',
+        });
+      } else if (data.status === 'REJECTED') {
+        addToast({
+          type: 'error',
+          title: 'Registration Rejected',
+          message: 'The platform owner could not approve this library listing.',
+        });
+      } else {
+        addToast({
+          type: 'info',
+          title: 'Status Checked',
+          message: 'Registration is currently PENDING review by the platform owner.',
+        });
+      }
+    } catch (err: any) {
+      addToast({
+        type: 'warning',
+        title: 'Status Check',
+        message: err.message || 'Could not verify status. Please try again.',
+      });
+    } finally {
+      setChecking(false);
+    }
+  };
+
   const navItems = [
     { label: 'Overview', path: '/admin', icon: LayoutDashboard },
     { label: 'Seats & Grid', path: '/admin/seats', icon: Grid },
@@ -52,7 +89,12 @@ export const AdminLayout: React.FC = () => {
     { label: 'Profile', path: '/admin/profile', icon: Building },
   ];
 
-  const isPending = library?.status === 'PENDING' || user?.email?.includes('pending');
+  const pendingNavItems = [
+    { label: 'Approval Status', path: '/admin', icon: Clock },
+    { label: 'Library Profile', path: '/admin/profile', icon: Building },
+  ];
+
+  const isPending = library ? library.status === 'PENDING' : (user?.email?.toLowerCase().includes('pending') ?? false);
   const isRejected = library?.status === 'REJECTED';
 
   return (
@@ -87,11 +129,11 @@ export const AdminLayout: React.FC = () => {
           </div>
         </div>
 
-        {/* Tab Navigation if Approved */}
-        {!isPending && !isRejected && (
+        {/* Tab Navigation */}
+        {!isRejected && (
           <div className="bg-navy-dark border-t border-white/10 px-4 sm:px-8 overflow-x-auto">
             <div className="max-w-7xl mx-auto flex items-center gap-1 py-1">
-              {navItems.map((item) => {
+              {(isPending ? pendingNavItems : navItems).map((item) => {
                 const Icon = item.icon;
                 const active = location.pathname === item.path;
                 return (
@@ -116,7 +158,12 @@ export const AdminLayout: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {isPending ? (
+        {loading ? (
+          <div className="text-center py-20 space-y-3">
+            <div className="w-9 h-9 border-4 border-primary/25 border-t-primary rounded-full animate-spin mx-auto" />
+            <p className="text-xs font-semibold text-slate-500">Loading library details...</p>
+          </div>
+        ) : isPending && location.pathname !== '/admin/profile' ? (
           <div className="max-w-xl mx-auto bg-white rounded-3xl p-8 border border-amber-200 shadow-xl text-center mt-8">
             <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
               <AlertTriangle className="w-8 h-8" />
@@ -132,13 +179,12 @@ export const AdminLayout: React.FC = () => {
             </div>
             <div className="flex flex-col sm:flex-row flex-wrap gap-3 justify-center items-center">
               <button
-                onClick={() => {
-                  adminApi.getLibrary().then((data) => setLibrary(data)).catch(console.error);
-                }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover shadow-md shadow-primary/20 transition-all"
+                onClick={handleCheckStatus}
+                disabled={checking}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-white text-xs font-semibold hover:bg-primary-hover disabled:opacity-75 shadow-md shadow-primary/20 transition-all cursor-pointer"
               >
-                <RotateCw className="w-4 h-4" />
-                Check Approval Status
+                <RotateCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+                {checking ? 'Checking Status...' : 'Check Approval Status'}
               </button>
               <Link
                 to="/admin/profile"
@@ -147,23 +193,28 @@ export const AdminLayout: React.FC = () => {
                 <Building className="w-4 h-4" />
                 View Library Profile
               </Link>
-              <button
-                onClick={async () => {
-                  try {
-                    const { authApi } = await import('../api/auth');
-                    const res = await authApi.login({ email: 'owner@vidyaasana.test', password: 'Owner@1234' });
-                    useAuthStore.getState().setAuth(res.user, res.accessToken);
-                    window.location.href = '/owner';
-                  } catch (e) {
-                    navigate('/login');
-                  }
-                }}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md transition-all"
-              >
-                <ShieldCheck className="w-4 h-4" />
-                Switch to Site Owner to Approve
-              </button>
             </div>
+          </div>
+        ) : isPending && location.pathname === '/admin/profile' ? (
+          <div>
+            <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-amber-900">Registration Pending Approval</p>
+                  <p className="text-[11px] text-amber-700">You can review and update your library facilities while awaiting verification.</p>
+                </div>
+              </div>
+              <Link
+                to="/admin"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200 hover:bg-slate-50 shadow-sm transition-all"
+              >
+                ← Back to Approval Status
+              </Link>
+            </div>
+            <Outlet />
           </div>
         ) : isRejected ? (
           <div className="max-w-xl mx-auto bg-white rounded-3xl p-8 border border-rose-200 shadow-xl text-center mt-8">
