@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { useUiStore } from '../store/uiStore';
 import { useAuthStore } from '../store/authStore';
 import { mockSocketInstance } from '../realtime/socket';
-import { getStoredUsers } from '../mocks/storage';
+import { getStoredUsers, clearMemoryStore } from '../mocks/storage';
+import { mockUsers as initialMockUsers } from '../mocks/db';
 import { Wrench, ChevronUp, ChevronDown, BellRing, UserCheck, RotateCcw } from 'lucide-react';
 
 export const DevPanel: React.FC = () => {
@@ -28,7 +29,13 @@ export const DevPanel: React.FC = () => {
         title: 'Switched Role',
         message: `Active user changed to ${target.name} (${target.role})`,
       });
-      window.location.reload();
+      const dest =
+        target.role === 'SITE_OWNER'
+          ? '/owner'
+          : target.role === 'LIBRARY_ADMIN'
+          ? '/admin'
+          : '/app';
+      window.location.href = dest;
     }
   };
 
@@ -39,12 +46,22 @@ export const DevPanel: React.FC = () => {
     localStorage.removeItem('va_mock_notifications');
     localStorage.removeItem('va_mock_waitlist');
     localStorage.removeItem('va_mock_preferences');
+    localStorage.removeItem('va_user');
+    localStorage.removeItem('va_token');
+    clearMemoryStore();
+
+    // Auto-select demo student on clean reset so app is immediately usable
+    const demoStudent = initialMockUsers.find((u) => u.id === 'usr-4') || initialMockUsers[3];
+    if (demoStudent) {
+      setAuth(demoStudent, `dev-token-${demoStudent.id}-${Date.now()}`);
+    }
+
     addToast({
       type: 'warning',
       title: 'Mock Data Reset',
       message: 'Demo state restored to defaults.',
     });
-    window.location.reload();
+    window.location.href = '/app';
   };
 
   const triggerTestReminder = () => {

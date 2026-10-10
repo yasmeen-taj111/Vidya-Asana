@@ -1,17 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import { authApi } from '../../api/auth';
 import { useUiStore } from '../../store/uiStore';
+import { getStoredUsers } from '../../mocks/storage';
 import { BookOpen, LogIn, Key, Mail, Sparkles, Shield, Building, User, Clock } from 'lucide-react';
 
 export const Login: React.FC = () => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const { setAuth } = useAuthStore();
+  const { user, isAuthenticated, setAuth } = useAuthStore();
   const { addToast } = useUiStore();
   const navigate = useNavigate();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated && user) {
+      if (user.role === 'SITE_OWNER') {
+        navigate('/owner', { replace: true });
+      } else if (user.role === 'LIBRARY_ADMIN') {
+        navigate('/admin', { replace: true });
+      } else {
+        navigate('/app', { replace: true });
+      }
+    }
+  }, [isAuthenticated, user, navigate]);
 
   const handleLogin = async (e?: React.FormEvent, customEmail?: string, customPass?: string) => {
     if (e) e.preventDefault();
@@ -41,6 +55,22 @@ export const Login: React.FC = () => {
         navigate('/app');
       }
     } catch (err: any) {
+      // Instant demo login fallback if local or mock user exists
+      const allUsers = getStoredUsers();
+      const demoUser = allUsers.find((u) => u.email.toLowerCase() === targetEmail.toLowerCase());
+      if (demoUser) {
+        setAuth(demoUser, `mock-token-${demoUser.id}-${Date.now()}`);
+        addToast({
+          type: 'success',
+          title: `Welcome back, ${demoUser.name}!`,
+          message: 'Authenticated demo profile.',
+        });
+        if (demoUser.role === 'SITE_OWNER') navigate('/owner');
+        else if (demoUser.role === 'LIBRARY_ADMIN') navigate('/admin');
+        else navigate('/app');
+        return;
+      }
+
       addToast({
         type: 'error',
         title: 'Authentication Failed',
