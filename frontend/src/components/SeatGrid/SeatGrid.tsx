@@ -22,6 +22,7 @@ import {
   Maximize2,
   Check,
   Move,
+  Clock,
 } from 'lucide-react';
 
 interface SeatGridProps {
@@ -72,6 +73,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
 
   const getStatusColor = (status: SeatStatus = 'AVAILABLE', isSelected: boolean) => {
     if (isSelected) {
+      if (status === 'BOOKED') {
+        return 'bg-rose-600 text-white border-rose-700 ring-4 ring-rose-400/50 shadow-xl scale-105 z-20';
+      }
       return 'bg-primary text-white border-primary ring-4 ring-primary/20 shadow-xl scale-105 z-20';
     }
 
@@ -223,7 +227,14 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 onMouseEnter={() => setHoveredCell(cell)}
                 onMouseLeave={() => setHoveredCell(null)}
                 aria-selected={isSelected}
-                aria-label={`Seat ${seat.label}, Type: ${seat.seatType}, Status: ${status}`}
+                title={
+                  status === 'BOOKED' && allowOccupiedClick
+                    ? `Seat ${seat.label} is taken. Click to join waitlist.`
+                    : `Seat ${seat.label}`
+                }
+                aria-label={`Seat ${seat.label}, Type: ${seat.seatType}, Status: ${status}${
+                  status === 'BOOKED' && allowOccupiedClick ? ' (Click to join waitlist)' : ''
+                }`}
                 className={`relative group flex flex-col items-center justify-between p-2 rounded-2xl border-2 transition-all duration-300 ease-out select-none active:scale-95 active:duration-100 ${getStatusColor(
                   status,
                   isSelected
@@ -246,7 +257,15 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                 <div className="text-[9px] uppercase font-bold tracking-wider leading-none">
                   {isSelected ? (
                     <span className="flex items-center gap-0.5">
-                      <Check className="w-3 h-3" /> Picked
+                      {status === 'BOOKED' ? (
+                        <>
+                          <Clock className="w-3 h-3" /> Waitlist
+                        </>
+                      ) : (
+                        <>
+                          <Check className="w-3 h-3" /> Picked
+                        </>
+                      )}
                     </span>
                   ) : status === 'YOURS' ? (
                     'Yours'
@@ -291,8 +310,9 @@ export const SeatGrid: React.FC<SeatGridProps> = ({
                     FREE / AVAILABLE
                   </span>
                 ) : hoveredCell.status === 'BOOKED' ? (
-                  <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 font-bold text-[10px]">
-                    OCCUPIED / TAKEN
+                  <span className="px-1.5 py-0.5 rounded-md bg-rose-100 text-rose-800 font-bold text-[10px] flex items-center gap-1">
+                    <Clock className="w-3 h-3" />
+                    OCCUPIED / TAKEN {allowOccupiedClick ? '• CLICK TO JOIN WAITLIST' : ''}
                   </span>
                 ) : hoveredCell.status === 'YOURS' ? (
                   <span className="px-1.5 py-0.5 rounded-md bg-blue-100 text-blue-800 font-bold text-[10px]">

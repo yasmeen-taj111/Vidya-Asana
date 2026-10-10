@@ -1,7 +1,7 @@
 import { io, Socket } from 'socket.io-client';
 import { useAuthStore } from '../store/authStore';
 import { useUiStore } from '../store/uiStore';
-import { SeatStatus } from '../api/types';
+import { SeatStatus, Seat } from '../api/types';
 
 type Listener = (...args: unknown[]) => void;
 
@@ -74,6 +74,14 @@ class MockSocket {
       bookingId,
       message: 'Your slot has started! Are you coming to your seat?',
       graceUntil,
+    });
+  }
+
+  simulateWaitlistAvailable(waitlistId: string, seat: Seat, claimExpiresAt: string) {
+    this.simulateEvent('waitlist:available', {
+      waitlistId,
+      seat,
+      claimExpiresAt,
     });
   }
 }

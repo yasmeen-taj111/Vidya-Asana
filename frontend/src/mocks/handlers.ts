@@ -19,6 +19,7 @@ import {
   markStoredNotificationRead,
   markAllStoredNotificationsRead,
   getUserWaitlist,
+  getStoredWaitlist,
   addStoredWaitlistEntry,
   removeStoredWaitlistEntry,
   updateStoredWaitlistEntry,
@@ -47,6 +48,7 @@ import {
 import { useUiStore } from '../store/uiStore';
 import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell } from '../api/types';
 import { generateChatResponse } from '../chat/chatEngine';
+import { mockSocketInstance } from '../realtime/socket';
 
 const BASE = '*/api/v1';
 
@@ -988,6 +990,51 @@ export const handlers = [
       cancelledAt: new Date().toISOString(),
     });
     if (!updated) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Booking not found' } }, { status: 404 });
+
+    // Free seat and notify next person on waitlist
+    const allWait = getStoredWaitlist();
+    const waitingEntry = allWait.find(
+      (w) =>
+        w.seat.id === updated.seat.id &&
+        w.slot.id === updated.slot.id &&
+        w.date === updated.date &&
+        w.status === 'WAITING'
+    );
+    if (waitingEntry) {
+      const claimExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      updateStoredWaitlistEntry(waitingEntry.id, {
+        status: 'NOTIFIED',
+        claimExpiresAt,
+      });
+      addStoredNotification(waitingEntry.userId || 'usr-4', {
+        id: `ntf-${Date.now()}`,
+        type: 'WAITLIST_AVAILABLE',
+        title: 'Waitlist Seat Freed!',
+        body: `A seat (${waitingEntry.seat.label}) at ${waitingEntry.libraryName} is now available! You have 10 minutes to claim it.`,
+        isRead: false,
+        data: {
+          waitlistId: waitingEntry.id,
+          seatId: waitingEntry.seat.id,
+          slotId: waitingEntry.slot.id,
+          date: waitingEntry.date,
+          claimExpiresAt,
+        },
+        createdAt: new Date().toISOString(),
+      });
+      mockSocketInstance.simulateWaitlistAvailable(
+        waitingEntry.id,
+        waitingEntry.seat,
+        claimExpiresAt
+      );
+      mockSocketInstance.simulateSeatUpdate(
+        waitingEntry.libraryId,
+        waitingEntry.seat.id,
+        'HELD',
+        waitingEntry.date,
+        waitingEntry.slot.id
+      );
+    }
+
     return HttpResponse.json({ success: true, data: updated });
   }),
 
@@ -1001,6 +1048,44 @@ export const handlers = [
         status: 'CANCELLED',
         cancelledAt: new Date().toISOString(),
       });
+
+      // Free seat and notify waitlist
+      const allWait = getStoredWaitlist();
+      const waitingEntry = allWait.find(
+        (w) =>
+          w.seat.id === bk.seat.id &&
+          w.slot.id === bk.slot.id &&
+          w.date === bk.date &&
+          w.status === 'WAITING'
+      );
+      if (waitingEntry) {
+        const claimExpiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+        updateStoredWaitlistEntry(waitingEntry.id, {
+          status: 'NOTIFIED',
+          claimExpiresAt,
+        });
+        addStoredNotification(waitingEntry.userId || 'usr-4', {
+          id: `ntf-${Date.now()}`,
+          type: 'WAITLIST_AVAILABLE',
+          title: 'Waitlist Seat Freed!',
+          body: `A seat (${waitingEntry.seat.label}) at ${waitingEntry.libraryName} is now available! You have 10 minutes to claim it.`,
+          isRead: false,
+          data: {
+            waitlistId: waitingEntry.id,
+            seatId: waitingEntry.seat.id,
+            slotId: waitingEntry.slot.id,
+            date: waitingEntry.date,
+            claimExpiresAt,
+          },
+          createdAt: new Date().toISOString(),
+        });
+        mockSocketInstance.simulateWaitlistAvailable(
+          waitingEntry.id,
+          waitingEntry.seat,
+          claimExpiresAt
+        );
+      }
+
       return HttpResponse.json({ success: true, data: updated });
     }
 
@@ -1023,22 +1108,68 @@ export const handlers = [
     const currentUser = resolveCurrentUser(request);
     const userId = currentUser?.id || 'usr-4';
     const body = (await request.json()) as { seatId: string; slotId: string; date: string };
+
+    // Check if user is already in waitlist for this seat, slot, and date
+    const userWaitlist = getUserWaitlist(userId);
+    const alreadyWaiting = userWaitlist.some(
+      (w) =>
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        (w.status === 'WAITING' || w.status === 'NOTIFIED')
+    );
+    if (alreadyWaiting) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'ALREADY_ON_WAITLIST',
+            message: 'You are already on the waitlist for this seat',
+          },
+        },
+        { status: 409 }
+      );
+    }
+
+    // Locate seat and floor label across all floor grids
+    let seat: Seat | undefined;
+    for (const grid of Object.values(mockFloorGrids)) {
+      const cell = grid.cells.find((c) => c.seat?.id === body.seatId);
+      if (cell?.seat) {
+        seat = cell.seat;
+        break;
+      }
+    }
+    if (!seat) {
+      seat = mockFloorGrids['fl-1'].cells.find((c) => c.seat?.id === body.seatId)?.seat || mockFloorGrids['fl-1'].cells[0].seat!;
+    }
+
     const slot = mockSlots.find((s) => s.id === body.slotId) || mockSlots[0];
-    const seat = mockFloorGrids['fl-1'].cells.find((c) => c.seat?.id === body.seatId)?.seat || mockFloorGrids['fl-1'].cells[0].seat!;
+    const library = mockLibraries.find((l) => l.id === slot.libraryId) || mockLibraries[0];
+
+    const allWaitlist = getStoredWaitlist();
+    const existingQueueCount = allWaitlist.filter(
+      (w) =>
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        w.status === 'WAITING'
+    ).length;
+    const position = existingQueueCount + 1;
 
     const newWait: WaitlistEntry = {
       id: `wt-${Date.now()}`,
       seat,
-      libraryId: 'lib-1',
-      libraryName: 'Central Study Hub',
+      libraryId: library.id,
+      libraryName: library.name,
       slot,
       date: body.date,
       status: 'WAITING',
-      position: 1,
+      position,
       createdAt: new Date().toISOString(),
     };
     addStoredWaitlistEntry(userId, newWait);
-    return HttpResponse.json({ success: true, data: newWait });
+    return HttpResponse.json({ success: true, data: newWait }, { status: 201 });
   }),
 
   http.get(`${BASE}/waitlist/me`, ({ request }) => {
@@ -1082,6 +1213,17 @@ export const handlers = [
     };
 
     saveStoredBooking(newBooking);
+
+    addStoredNotification(userId, {
+      id: `ntf-${Date.now()}`,
+      type: 'BOOKING_CONFIRMED',
+      title: 'Waitlist Seat Claimed!',
+      body: `Your reservation for seat ${item.seat.label} at ${item.libraryName} has been confirmed.`,
+      isRead: false,
+      data: { bookingId: newBooking.id },
+      createdAt: new Date().toISOString(),
+    });
+
     return HttpResponse.json({ success: true, data: newBooking });
   }),
 

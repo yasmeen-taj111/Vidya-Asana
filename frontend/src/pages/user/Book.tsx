@@ -10,6 +10,7 @@ import {
   Seat,
   SeatSuggestion,
   Booking,
+  WaitlistEntry,
 } from '../../api/types';
 import { SeatGrid } from '../../components/SeatGrid/SeatGrid';
 import { ConflictModal } from '../../components/ConflictModal';
@@ -52,6 +53,8 @@ export const Book: React.FC = () => {
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
   const [suggestions, setSuggestions] = useState<SeatSuggestion[]>([]);
   const [userBookings, setUserBookings] = useState<Booking[]>([]);
+  const [userWaitlist, setUserWaitlist] = useState<WaitlistEntry[]>([]);
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
 
   // Conflict modal states
   const [showConflictModal, setShowConflictModal] = useState(false);
@@ -100,7 +103,14 @@ export const Book: React.FC = () => {
       .catch((err) => console.error(err));
   }, [libraryId]);
 
-  // Load user's existing bookings to prevent surprising overlap conflicts
+  // Load user's existing bookings and waitlists to prevent conflicts and show active status
+  const loadUserWaitlist = () => {
+    waitlistApi
+      .getMyWaitlist()
+      .then((data) => setUserWaitlist(data))
+      .catch((err) => console.warn('[Book] Could not load waitlist:', err));
+  };
+
   useEffect(() => {
     bookingsApi
       .getMyBookings({ upcoming: true })
@@ -110,6 +120,8 @@ export const Book: React.FC = () => {
       .catch((err) => {
         console.warn('[Book] Could not load upcoming bookings:', err);
       });
+
+    loadUserWaitlist();
   }, []);
 
   const isSlotPastToday = (slot: TimeSlot) => {
@@ -142,6 +154,15 @@ export const Book: React.FC = () => {
         b.slot.id === slotId &&
         b.date === selectedDate &&
         (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+  };
+
+  const getSlotWaitlist = (slotId: string) => {
+    return userWaitlist.find(
+      (w) =>
+        w.slot.id === slotId &&
+        w.date === selectedDate &&
+        (w.status === 'WAITING' || w.status === 'NOTIFIED')
     );
   };
 
@@ -271,29 +292,42 @@ export const Book: React.FC = () => {
 
   const handleJoinWaitlist = async () => {
     if (!selectedSeat || !selectedSlot) return;
+    setJoiningWaitlist(true);
     try {
-      await waitlistApi.joinWaitlist({
+      const entry = await waitlistApi.joinWaitlist({
         seatId: selectedSeat.id,
         slotId: selectedSlot.id,
         date: selectedDate,
       });
+      setUserWaitlist((prev) => [...prev, entry]);
       addToast({
         type: 'success',
         title: 'Added to Waitlist',
-        message: `You are in the queue for seat ${selectedSeat.label}. You'll be notified if freed.`,
+        message: `You are #${entry.position} in queue for seat ${selectedSeat.label}. You'll be notified if freed.`,
       });
       setShowConflictModal(false);
       navigate('/app/waitlist');
     } catch (err: any) {
       addToast({
         type: 'error',
-        title: 'Waitlist Error',
+        title: 'Waitlist Notice',
         message: err.message || 'Could not join waitlist.',
       });
+    } finally {
+      setJoiningWaitlist(false);
     }
   };
 
   const currentGrid = grids[activeFloorId];
+  const selectedCell = currentGrid?.cells.find((c) => c.seat?.id === selectedSeat?.id);
+  const isSelectedSeatOccupied = selectedCell?.status === 'BOOKED';
+  const existingWaitlistEntry = userWaitlist.find(
+    (w) =>
+      w.seat.id === selectedSeat?.id &&
+      w.slot.id === selectedSlot?.id &&
+      w.date === selectedDate &&
+      (w.status === 'WAITING' || w.status === 'NOTIFIED')
+  );
 
   return (
     <div className="space-y-6">
@@ -370,6 +404,7 @@ export const Book: React.FC = () => {
               {slots.map((s) => {
                 const isSelected = selectedSlot?.id === s.id;
                 const existingRes = getSlotReservation(s.id);
+                const existingWait = getSlotWaitlist(s.id);
                 const isPast = isSlotPastToday(s);
 
                 return (
@@ -388,6 +423,8 @@ export const Book: React.FC = () => {
                         ? 'border-primary bg-primary/5 ring-2 ring-primary shadow-sm font-semibold'
                         : existingRes
                         ? 'border-amber-200 bg-amber-50/40 hover:bg-amber-50 text-slate-700'
+                        : existingWait
+                        ? 'border-blue-200 bg-blue-50/40 hover:bg-blue-50 text-slate-700'
                         : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-700'
                     }`}
                   >
@@ -404,11 +441,15 @@ export const Book: React.FC = () => {
                     <div className="text-base font-black text-navy font-mono">
                       {s.startTime} – {s.endTime}
                     </div>
-                    {existingRes && (
+                    {existingRes ? (
                       <div className="text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1 w-fit">
                         <CheckCircle2 className="w-3 h-3 text-amber-600" /> Reserved ({existingRes.seat.label})
                       </div>
-                    )}
+                    ) : existingWait ? (
+                      <div className="text-[10px] font-bold text-blue-800 bg-blue-100 px-2 py-0.5 rounded-md flex items-center gap-1 w-fit">
+                        <Clock className="w-3 h-3 text-blue-600" /> Waitlisted ({existingWait.seat.label} #{existingWait.position})
+                      </div>
+                    ) : null}
                   </button>
                 );
               })}
@@ -541,32 +582,127 @@ export const Book: React.FC = () => {
               selectedSeatId={selectedSeat?.id}
               onSelectSeat={handleSelectSeat}
               interactive={true}
+              allowOccupiedClick={true}
             />
           ) : null}
 
+          {/* Waitlist Callout Banner if Selected Seat is Occupied */}
+          {selectedSeat && isSelectedSeatOccupied && (
+            <div
+              className={`p-5 rounded-3xl border transition-all animate-fade-in shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 ${
+                existingWaitlistEntry
+                  ? 'bg-blue-50/90 border-blue-200 text-blue-950'
+                  : 'bg-gradient-to-r from-amber-50 to-orange-50 border-amber-200/90 text-amber-950'
+              }`}
+            >
+              <div className="flex items-start gap-3.5">
+                <div
+                  className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${
+                    existingWaitlistEntry
+                      ? 'bg-blue-100 text-blue-700'
+                      : 'bg-amber-100 text-amber-700'
+                  }`}
+                >
+                  <Clock className="w-5 h-5" />
+                </div>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="font-extrabold text-sm text-slate-900">
+                      Seat {selectedSeat.label} is currently booked
+                    </h4>
+                    <span
+                      className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase ${
+                        existingWaitlistEntry
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-rose-100 text-rose-800'
+                      }`}
+                    >
+                      {existingWaitlistEntry
+                        ? `In Queue • Position #${existingWaitlistEntry.position}`
+                        : 'Occupied / Taken'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-600 mt-1 max-w-xl leading-relaxed">
+                    {existingWaitlistEntry
+                      ? `You are currently in queue at Position #${existingWaitlistEntry.position} for this seat and slot. You'll receive an exclusive 10-minute claim pass the moment it becomes available.`
+                      : 'This desk is currently reserved. Join the FIFO queue — if the student cancels or misses check-in within the 30-minute grace window, you will receive an instant 10-minute pass to claim it!'}
+                  </p>
+                </div>
+              </div>
+
+              {existingWaitlistEntry ? (
+                <button
+                  onClick={() => navigate('/app/waitlist')}
+                  className="w-full sm:w-auto px-5 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs shadow-md shadow-blue-600/20 transition-all flex items-center justify-center gap-2 shrink-0"
+                >
+                  <span>View in Waitlist</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              ) : (
+                <button
+                  onClick={handleJoinWaitlist}
+                  disabled={joiningWaitlist}
+                  className="w-full sm:w-auto px-6 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md shadow-amber-600/25 transition-all flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                >
+                  <Clock className="w-4 h-4" />
+                  <span>
+                    {joiningWaitlist ? 'Joining Queue...' : `Join Waitlist for Seat ${selectedSeat.label}`}
+                  </span>
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Stepper bottom navigation bar */}
-          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-md flex items-center justify-between">
+          <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-md flex items-center justify-between gap-4">
             <button
               onClick={() => setStep(1)}
-              className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+              className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1.5 shrink-0"
             >
               <ArrowLeft className="w-4 h-4" /> Change Date/Slot
             </button>
 
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               {selectedSeat && (
                 <span className="text-xs font-bold text-slate-900 hidden sm:inline">
                   Selected: <span className="text-primary">{selectedSeat.label}</span> ({selectedSeat.seatType})
+                  {isSelectedSeatOccupied && (
+                    <span className="ml-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-rose-100 text-rose-800">
+                      Taken
+                    </span>
+                  )}
                 </span>
               )}
-              <button
-                disabled={!selectedSeat}
-                onClick={() => setStep(3)}
-                className="px-8 py-3 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/25 transition-all flex items-center gap-1.5 disabled:opacity-50"
-              >
-                <span>Proceed to Summary</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
+
+              {isSelectedSeatOccupied ? (
+                existingWaitlistEntry ? (
+                  <button
+                    onClick={() => navigate('/app/waitlist')}
+                    className="px-6 py-3 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold shadow-md shadow-blue-600/25 transition-all flex items-center gap-2"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>In Waitlist (#{existingWaitlistEntry.position}) → View</span>
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleJoinWaitlist}
+                    disabled={joiningWaitlist}
+                    className="px-6 py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-md shadow-amber-600/25 transition-all flex items-center gap-2 disabled:opacity-50"
+                  >
+                    <Clock className="w-4 h-4" />
+                    <span>{joiningWaitlist ? 'Joining...' : `Join Seat ${selectedSeat?.label || ''} Waitlist`}</span>
+                  </button>
+                )
+              ) : (
+                <button
+                  disabled={!selectedSeat}
+                  onClick={() => setStep(3)}
+                  className="px-8 py-3 rounded-2xl bg-primary hover:bg-primary-hover text-white text-xs font-bold shadow-md shadow-primary/25 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  <span>Proceed to Summary</span>
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+              )}
             </div>
           </div>
         </div>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Bell, Check, BookOpen, AlertCircle, Clock, Sparkles } from 'lucide-react';
 import { notificationsApi } from '../api/notifications';
 import { Notification } from '../api/types';
@@ -6,6 +7,7 @@ import { getSocket } from '../realtime/socket';
 import { formatDistanceToNow } from 'date-fns';
 
 export const NotificationBell: React.FC = () => {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -118,7 +120,15 @@ export const NotificationBell: React.FC = () => {
               notifications.map((n) => (
                 <div
                   key={n.id}
-                  onClick={() => !n.isRead && handleMarkAsRead(n.id)}
+                  onClick={() => {
+                    if (!n.isRead) handleMarkAsRead(n.id);
+                    setIsOpen(false);
+                    if (n.type === 'WAITLIST_AVAILABLE') {
+                      navigate('/app/waitlist');
+                    } else if (n.type === 'BOOKING_CONFIRMED' || n.type === 'REMINDER') {
+                      navigate('/app/bookings');
+                    }
+                  }}
                   className={`py-3 px-2 flex items-start gap-3 rounded-lg transition-colors cursor-pointer ${
                     n.isRead ? 'opacity-70 hover:bg-slate-50' : 'bg-primary/5 hover:bg-primary/10'
                   }`}
