@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useUiStore } from '../store/uiStore';
 import { adminApi } from '../api/admin';
 import { Library } from '../api/types';
 import {
@@ -16,10 +17,10 @@ import {
   AlertTriangle,
   XCircle,
   RotateCw,
+  ArrowLeft,
 } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
-import { useUiStore } from '../store/uiStore';
 
 export const AdminLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
@@ -30,52 +31,60 @@ export const AdminLayout: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
 
+  const fetchLibrary = async (showFeedback = false) => {
+    try {
+      const data = await adminApi.getLibrary();
+      setLibrary(data);
+      if (showFeedback) {
+        if (data.status === 'APPROVED') {
+          addToast({
+            type: 'success',
+            title: 'Library Approved! 🎉',
+            message: 'Your library registration has been verified and approved. Dashboard unlocked!',
+          });
+        } else if (data.status === 'REJECTED') {
+          addToast({
+            type: 'error',
+            title: 'Registration Rejected',
+            message: data.rejectionReason || 'The platform owner could not approve this library listing.',
+          });
+        } else {
+          addToast({
+            type: 'info',
+            title: 'Status Checked',
+            message: 'Registration is currently PENDING review by the platform owner.',
+          });
+        }
+      }
+      return data;
+    } catch (err: any) {
+      console.error(err);
+      if (showFeedback) {
+        addToast({
+          type: 'warning',
+          title: 'Status Check',
+          message: err.message || 'Could not verify status. Please try again.',
+        });
+      }
+      return null;
+    } finally {
+      setLoading(false);
+      setChecking(false);
+    }
+  };
+
   useEffect(() => {
-    adminApi
-      .getLibrary()
-      .then((data) => setLibrary(data))
-      .catch((err) => console.error(err))
-      .finally(() => setLoading(false));
-  }, []);
+    fetchLibrary();
+  }, [location.pathname]);
+
+  const handleCheckStatus = async () => {
+    setChecking(true);
+    await fetchLibrary(true);
+  };
 
   const handleLogout = () => {
     logout();
     navigate('/login');
-  };
-
-  const handleCheckStatus = async () => {
-    setChecking(true);
-    try {
-      const data = await adminApi.getLibrary();
-      setLibrary(data);
-      if (data.status === 'APPROVED') {
-        addToast({
-          type: 'success',
-          title: 'Library Approved! 🎉',
-          message: 'Your library registration has been verified and approved. Dashboard unlocked!',
-        });
-      } else if (data.status === 'REJECTED') {
-        addToast({
-          type: 'error',
-          title: 'Registration Rejected',
-          message: 'The platform owner could not approve this library listing.',
-        });
-      } else {
-        addToast({
-          type: 'info',
-          title: 'Status Checked',
-          message: 'Registration is currently PENDING review by the platform owner.',
-        });
-      }
-    } catch (err: any) {
-      addToast({
-        type: 'warning',
-        title: 'Status Check',
-        message: err.message || 'Could not verify status. Please try again.',
-      });
-    } finally {
-      setChecking(false);
-    }
   };
 
   const navItems = [
@@ -96,6 +105,7 @@ export const AdminLayout: React.FC = () => {
 
   const isPending = library ? library.status === 'PENDING' : (user?.email?.toLowerCase().includes('pending') ?? false);
   const isRejected = library?.status === 'REJECTED';
+  const isProfilePage = location.pathname === '/admin/profile';
 
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
@@ -163,7 +173,7 @@ export const AdminLayout: React.FC = () => {
             <div className="w-9 h-9 border-4 border-primary/25 border-t-primary rounded-full animate-spin mx-auto" />
             <p className="text-xs font-semibold text-slate-500">Loading library details...</p>
           </div>
-        ) : isPending && location.pathname !== '/admin/profile' ? (
+        ) : isPending && !isProfilePage ? (
           <div className="max-w-xl mx-auto bg-white rounded-3xl p-8 border border-amber-200 shadow-xl text-center mt-8">
             <div className="w-16 h-16 bg-amber-100 text-amber-600 rounded-2xl flex items-center justify-center mx-auto mb-4 animate-pulse">
               <AlertTriangle className="w-8 h-8" />
@@ -195,28 +205,29 @@ export const AdminLayout: React.FC = () => {
               </Link>
             </div>
           </div>
-        ) : isPending && location.pathname === '/admin/profile' ? (
+        ) : isPending && isProfilePage ? (
           <div>
-            <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3">
+            <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3 max-w-2xl mx-auto">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
-                  <AlertTriangle className="w-5 h-5" />
+                  <AlertTriangle className="w-4 h-4" />
                 </div>
                 <div>
                   <p className="text-xs font-bold text-amber-900">Registration Pending Approval</p>
-                  <p className="text-[11px] text-amber-700">You can review and update your library facilities while awaiting verification.</p>
+                  <p className="text-[11px] text-amber-700">You can review and update your library profile while awaiting verification.</p>
                 </div>
               </div>
               <Link
                 to="/admin"
                 className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-white text-slate-700 text-xs font-bold border border-slate-200 hover:bg-slate-50 shadow-sm transition-all"
               >
-                ← Back to Approval Status
+                <ArrowLeft className="w-3.5 h-3.5" />
+                Back to Approval Status
               </Link>
             </div>
             <Outlet />
           </div>
-        ) : isRejected ? (
+        ) : isRejected && !isProfilePage ? (
           <div className="max-w-xl mx-auto bg-white rounded-3xl p-8 border border-rose-200 shadow-xl text-center mt-8">
             <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
               <XCircle className="w-8 h-8" />
@@ -231,16 +242,52 @@ export const AdminLayout: React.FC = () => {
                 <p>{library.rejectionReason}</p>
               </div>
             )}
-            <Link
-              to="/admin/profile"
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-900 text-white text-xs font-semibold hover:bg-slate-800 transition-all"
-            >
-              <Building className="w-4 h-4" />
-              Review & Update Profile
-            </Link>
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3 justify-center items-center">
+              <button
+                onClick={handleCheckStatus}
+                disabled={checking}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold shadow-md transition-all disabled:opacity-60 cursor-pointer disabled:cursor-not-allowed"
+              >
+                <RotateCw className={`w-4 h-4 ${checking ? 'animate-spin' : ''}`} />
+                {checking ? 'Checking Status...' : 'Check Approval Status'}
+              </button>
+              <Link
+                to="/admin/profile"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold transition-all shadow-md"
+              >
+                <Building className="w-4 h-4" />
+                Review & Update Profile
+              </Link>
+            </div>
           </div>
         ) : (
-          <Outlet />
+          <>
+            {isRejected && isProfilePage && (
+              <div className="mb-6 max-w-2xl mx-auto flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-4 rounded-2xl border bg-rose-50 border-rose-200 text-rose-900 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0 bg-rose-100 text-rose-700">
+                    <XCircle className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold leading-tight">
+                      Library Registration Rejected
+                    </p>
+                    <p className="text-[11px] opacity-80">
+                      You can inspect and update your library profile details here.
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  to="/admin"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-xs transition-all shrink-0"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  Back to Status
+                </Link>
+              </div>
+            )}
+            <Outlet />
+          </>
         )}
       </main>
 

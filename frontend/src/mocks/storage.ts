@@ -570,6 +570,10 @@ export function getLibraryForAdmin(user?: User | null): Library {
     if (matched) return matched;
   }
   if (user?.email?.toLowerCase().includes('pending') || user?.id === 'usr-3') {
+    const matched = libraries.find(
+      (l) => l.id === 'lib-2' || l.contactEmail?.toLowerCase() === 'pending@vidyaasana.test'
+    );
+    if (matched) return matched;
     const pendingLib = libraries.find((l) => l.status === 'PENDING');
     if (pendingLib) return pendingLib;
     return libraries[1] || libraries[0];

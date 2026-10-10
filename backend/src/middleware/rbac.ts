@@ -21,8 +21,8 @@ export async function requireApprovedLibrary(req: Request, res: Response, next: 
     return next(new AppError('FORBIDDEN', 'Library administrator account required', 403));
   }
 
-  // Exempt GET /admin/library from approved check so admin can inspect profile
-  if (req.method === 'GET' && req.path === '/library') {
+  // Exempt GET and PUT /library from approved check so admin can inspect and update profile
+  if (['GET', 'PUT'].includes(req.method) && req.path === '/library') {
     return next();
   }
 
