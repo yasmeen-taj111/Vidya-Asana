@@ -5,6 +5,7 @@ import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/errors';
 import { mapLibraryRow } from '../owner/routes';
 import { calculateHaversineDistance, scoreLibrary, scoreSeat } from '../../utils/scoring';
+import { ensureLibraryDefaults } from '../library/initLibrary';
 
 export const discoveryRouter = Router();
 
@@ -111,6 +112,7 @@ discoveryRouter.get('/libraries/:id', async (req, res, next) => {
 // GET /libraries/:id/slots
 discoveryRouter.get('/libraries/:id/slots', async (req, res, next) => {
   try {
+    await ensureLibraryDefaults(req.params.id);
     const slots = await query('SELECT * FROM time_slots WHERE library_id = ? AND is_active = 1 ORDER BY start_time ASC', [req.params.id]);
     sendSuccess(res, slots.map((s) => ({
       id: s.id,
@@ -130,6 +132,7 @@ discoveryRouter.get('/libraries/:id/slots', async (req, res, next) => {
 // GET /libraries/:id/floors
 discoveryRouter.get('/libraries/:id/floors', async (req, res, next) => {
   try {
+    await ensureLibraryDefaults(req.params.id);
     const floors = await query('SELECT id, floor_number as floorNumber, label, `rows`, `cols` FROM floors WHERE library_id = ? ORDER BY floor_number ASC', [req.params.id]);
     sendSuccess(res, floors);
   } catch (err) {
