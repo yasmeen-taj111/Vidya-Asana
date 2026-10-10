@@ -5,6 +5,13 @@ export default {
   theme: {
     extend: {
       colors: {
+        brand: {
+          orange: '#E8592A',
+          blue: '#2B5BE0',
+          navy: '#17306A',
+          dark: '#0f172a',
+          light: '#EEF3FF',
+        },
         primary: {
           DEFAULT: '#2B5BE0',
           hover: '#2248b8',
@@ -28,6 +35,7 @@ export default {
       },
       fontFamily: {
         sans: ['Inter', 'system-ui', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+        serif: ['"Playfair Display"', 'Georgia', 'serif'],
       },
     },
   },

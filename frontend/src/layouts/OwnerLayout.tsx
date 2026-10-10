@@ -15,45 +15,44 @@ export const OwnerLayout: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      <header className="sticky top-0 z-30 bg-navy text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-6">
-            <Link to="/owner" className="flex items-center gap-2.5 font-bold text-xl text-white">
-              <div className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center text-white shadow-md">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <span>Vidya Asana <span className="text-xs px-2 py-0.5 rounded-full bg-white/20 text-accent font-semibold ml-1">Platform Admin</span></span>
-            </Link>
-
-            <nav className="hidden md:flex items-center gap-4">
-              <Link
-                to="/owner"
-                className="text-sm font-medium px-3.5 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 transition-all flex items-center gap-2"
-              >
-                <Building className="w-4 h-4 text-accent" />
-                Library Approvals
-              </Link>
-            </nav>
-          </div>
-
-          <div className="flex items-center gap-4">
-            <div className="text-right hidden sm:block">
-              <p className="text-sm font-semibold leading-tight">{user?.name || 'Site Owner'}</p>
-              <p className="text-xs text-slate-300 font-mono">{user?.email}</p>
+    <div className="min-h-screen flex flex-col bg-slate-50/50 text-slate-900 pb-16 md:pb-0">
+      {/* Curved Full-Round Floating Top Navbar (Owner / Platform Admin) */}
+      <header className="sticky top-3.5 z-40 px-2 sm:px-4 w-full max-w-[98vw] 2xl:max-w-[1550px] mx-auto transition-all">
+        <div className="bg-white/95 backdrop-blur-md border-2 border-slate-200 shadow-md shadow-slate-900/5 rounded-full px-4 sm:px-5 xl:px-6 py-2 flex items-center justify-between gap-2 lg:gap-4 xl:gap-6">
+          {/* Left: Logo */}
+          <Link to="/owner" className="flex items-center gap-2.5 tracking-tight group shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-md shadow-primary/30 group-hover:scale-105 transition-transform">
+              <ShieldCheck className="w-5 h-5" />
             </div>
+            <span className="font-extrabold text-[22px] xl:text-[23px] text-navy">
+              Vidya<span className="text-accent font-black">Asana</span>
+            </span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider hidden sm:inline-block">
+              Platform Admin
+            </span>
+          </Link>
+
+          {/* Right: Owner Profile & Actions */}
+          <div className="flex items-center gap-2.5 sm:gap-3 xl:gap-3.5 shrink-0">
+            <div className="hidden sm:block text-right whitespace-nowrap max-w-[160px] xl:max-w-none">
+              <p className="text-[14px] xl:text-[15px] font-bold text-slate-900 leading-tight truncate">{user?.name || 'Platform Director'}</p>
+              <p className="text-[11px] text-slate-500 font-mono font-medium leading-none pt-0.5 truncate">{user?.email}</p>
+            </div>
+
+            <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl bg-white/10 hover:bg-rose-600 text-slate-200 hover:text-white transition-all"
+              className="p-2 rounded-full text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
               title="Logout"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4 stroke-[2.25]" />
             </button>
           </div>
         </div>
       </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         <Outlet />
       </main>
 

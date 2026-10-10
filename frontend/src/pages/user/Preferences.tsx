@@ -60,12 +60,9 @@ export const Preferences: React.FC = () => {
   return (
     <div className="max-w-xl mx-auto bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl space-y-6">
       <div className="border-b pb-4">
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <Sliders className="w-5 h-5 text-primary" /> Study Environment Preferences
+        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          Study Environment Preferences
         </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          Customize your desk characteristics to optimize automated seat recommendation scoring.
-        </p>
       </div>
 
       <form onSubmit={handleSave} className="space-y-5 text-xs">
@@ -144,7 +141,6 @@ export const Preferences: React.FC = () => {
               onChange={(e) => setPrefs({ ...prefs, window: e.target.checked })}
               className="rounded text-primary"
             />
-            <Sun className="w-4 h-4 text-sky-600" />
             <span className="font-semibold text-slate-800">Direct Natural Light / Window Desk</span>
           </label>
 
@@ -155,7 +151,6 @@ export const Preferences: React.FC = () => {
               onChange={(e) => setPrefs({ ...prefs, powerOutlet: e.target.checked })}
               className="rounded text-primary"
             />
-            <Zap className="w-4 h-4 text-amber-500" />
             <span className="font-semibold text-slate-800">Dedicated Laptop Power Socket</span>
           </label>
 
@@ -166,7 +161,6 @@ export const Preferences: React.FC = () => {
               onChange={(e) => setPrefs({ ...prefs, quietZone: e.target.checked })}
               className="rounded text-primary"
             />
-            <VolumeX className="w-4 h-4 text-teal" />
             <span className="font-semibold text-slate-800">Strict Silent Pod / Silent Room</span>
           </label>
         </div>

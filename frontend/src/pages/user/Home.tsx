@@ -104,8 +104,8 @@ export const Home: React.FC = () => {
         {/* Upcoming Booking Card */}
         <div className="lg:col-span-2 bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl space-y-6">
           <div className="flex items-center justify-between">
-            <h3 className="font-bold text-slate-900 text-base flex items-center gap-2">
-              <Calendar className="w-5 h-5 text-primary" /> Active / Upcoming Reservation
+            <h3 className="font-bold text-slate-900 text-base tracking-tight">
+              Active / Upcoming Reservation
             </h3>
             {data?.upcomingBooking && (
               <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-emerald-100 text-emerald-800 uppercase tracking-wider">

@@ -79,8 +79,8 @@ export const MyBookings: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <CalendarCheck className="w-5 h-5 text-primary" /> My Seat Reservations
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+          My Seat Reservations
         </h2>
         <p className="text-xs text-slate-500 mt-1">
           Review upcoming entry passes, view QR badges, or manage past study sessions.

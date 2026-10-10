@@ -33,12 +33,9 @@ export const SeatsAndGrid: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <Grid className="w-5 h-5 text-primary" /> Interactive Floor & Seat Grid Builder
+        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+          Interactive Floor & Seat Grid Builder
         </h2>
-        <p className="text-xs text-slate-500 mt-1">
-          Customize room layouts, orient facing directions, flag quiet pods, and configure seat attributes.
-        </p>
       </div>
 
       <GridEditor initialGrids={grids} />

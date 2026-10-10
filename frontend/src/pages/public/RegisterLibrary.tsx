@@ -242,17 +242,11 @@ export const RegisterLibrary: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto my-12 px-4 sm:px-0">
-      <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-xl space-y-6">
+    <div className="max-w-md mx-auto my-12 px-4 sm:px-0">
+      <div className="bg-white/95 backdrop-blur-md rounded-3xl p-8 sm:p-10 border border-slate-200/80 shadow-2xl shadow-primary/20 hover:shadow-primary/25 space-y-6 relative overflow-hidden transition-shadow">
         {/* Header */}
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-navy text-white flex items-center justify-center mx-auto shadow-md">
-            <Building className="w-6 h-6 text-accent" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">List Your Library</h2>
-          <p className="text-xs text-slate-500">
-            Join the Vidya Asana network to automate reservations and prevent no-shows
-          </p>
+        <div className="text-center pt-1">
+          <h2 className="text-3xl sm:text-4xl font-serif font-bold text-navy tracking-tight">List Your Library</h2>
 
           {/* Stepper Indicator */}
           <div className="flex items-center justify-center gap-2 pt-4">

@@ -130,12 +130,9 @@ export const Slots: React.FC = () => {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <Clock className="w-5 h-5 text-primary" /> Study Time Slots & Tariff
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            Study Time Slots & Tariff
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Configure reservation windows and admission pricing per session.
-          </p>
         </div>
 
         <button

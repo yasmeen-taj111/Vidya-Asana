@@ -6,15 +6,9 @@ import { Link } from 'react-router-dom';
 import {
   Compass,
   Search,
-  Filter,
   MapPin,
   Sparkles,
-  Wifi,
-  Wind,
-  Shield,
-  Zap,
   ArrowRight,
-  Sliders,
 } from 'lucide-react';
 
 export const Discover: React.FC = () => {
@@ -72,56 +66,53 @@ export const Discover: React.FC = () => {
   }, [searchQuery, selectedSeatType, freeOnly, userLocation]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <Compass className="w-5 h-5 text-primary" /> Discover Libraries & Study Hubs
-        </h2>
-        <p className="text-xs text-slate-500 mt-1">
+    <div className="space-y-5 max-w-7xl mx-auto">
+      {/* Page Heading */}
+      <div className="space-y-1">
+        <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight">
+          Discover Libraries & Study Hubs
+        </h1>
+        <p className="text-xs sm:text-sm text-slate-500">
           Explore nearby air-conditioned facilities with verified amenities and live seat availability.
         </p>
       </div>
 
-      {/* Recommended For You Ribbon */}
+      {/* Personalized Recommendations Section */}
       {recommendations.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-accent" />
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-800">
-              Personalized Recommendations (Based on your preferences)
-            </span>
+        <div className="space-y-2.5">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-700">
+            Personalized Recommendations (Based on your preferences)
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {recommendations.map((rec) => (
               <div
                 key={rec.id}
-                className="bg-white p-5 rounded-3xl border border-primary/20 shadow-md hover:shadow-lg transition-all flex flex-col justify-between space-y-4 group"
+                className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-sm hover:shadow-md transition-all flex flex-col justify-between space-y-3.5 group"
               >
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-extrabold text-slate-900 group-hover:text-primary transition-colors">
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-sm font-bold text-slate-900 group-hover:text-primary transition-colors leading-snug">
                       {rec.name}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 text-[11px] font-semibold shrink-0">
                       {rec.matchScore}% Match
                     </span>
                   </div>
 
-                  <p className="text-xs text-slate-500 line-clamp-2">{rec.description}</p>
+                  <p className="text-xs text-slate-600 line-clamp-2 leading-relaxed">{rec.description}</p>
 
-                  <div className="flex items-center gap-2 text-[11px] text-slate-400">
-                    <MapPin className="w-3.5 h-3.5 text-primary" />
+                  <div className="flex items-center gap-2 text-xs text-slate-500 pt-1">
+                    <MapPin className="w-3.5 h-3.5 text-primary shrink-0" />
                     <span>{rec.distanceKm ? `${rec.distanceKm} km away` : rec.city}</span>
                     <span>•</span>
-                    <span className="font-semibold text-slate-700">{rec.totalSeats} Desks</span>
+                    <span className="font-medium text-slate-700">{rec.totalSeats} Desks</span>
                   </div>
                 </div>
 
                 <Link
                   to={`/app/libraries/${rec.id}/book`}
-                  className="w-full py-2.5 px-4 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-white font-bold text-xs transition-all flex items-center justify-center gap-1.5"
+                  className="w-full py-2.5 px-4 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-white font-semibold text-xs transition-colors flex items-center justify-center gap-1.5"
                 >
                   <span>Select Desk & Book</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -132,24 +123,24 @@ export const Discover: React.FC = () => {
         </div>
       )}
 
-      {/* Search & Filter Bar */}
-      <div className="bg-white p-4 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+      {/* Search & Filters Bar */}
+      <div className="bg-white p-3.5 rounded-2xl border border-slate-200/90 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex flex-wrap items-center gap-3 flex-1">
-          <div className="relative flex-1 min-w-[200px]">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-2.5" />
+          <div className="relative flex-1 min-w-[240px]">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search library by name, area or city..."
-              className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-200 focus:border-primary outline-none"
+              className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 text-xs text-slate-800 placeholder-slate-400 outline-none transition-all"
             />
           </div>
 
           <select
             value={selectedSeatType}
             onChange={(e) => setSelectedSeatType(e.target.value as SeatType | '')}
-            className="p-2 rounded-xl border border-slate-200 outline-none"
+            className="py-2.5 px-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white text-xs text-slate-700 font-medium focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none transition-all cursor-pointer"
           >
             <option value="">All Seat Types</option>
             <option value="INDIVIDUAL">INDIVIDUAL</option>
@@ -158,22 +149,22 @@ export const Discover: React.FC = () => {
             <option value="ACCESSIBLE">ACCESSIBLE</option>
           </select>
 
-          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
+          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700 py-2 px-1 select-none hover:text-slate-900 transition-colors">
             <input
               type="checkbox"
               checked={freeOnly}
               onChange={(e) => setFreeOnly(e.target.checked)}
-              className="rounded text-primary"
+              className="w-4 h-4 rounded text-primary focus:ring-primary/20 border-slate-300"
             />
             <span>Free Admission Only</span>
           </label>
         </div>
       </div>
 
-      {/* Map & List Split View */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      {/* Map & Library Details Two-Column Split View */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
         {/* Interactive Leaflet Map */}
-        <div className="lg:col-span-7 h-[480px]">
+        <div className="lg:col-span-7 h-[480px] rounded-2xl overflow-hidden border border-slate-200 shadow-sm">
           <LibraryMap
             libraries={libraries}
             center={userLocation}
@@ -182,10 +173,10 @@ export const Discover: React.FC = () => {
           />
         </div>
 
-        {/* Scrollable Library List */}
+        {/* Scrollable Library List / Details Card */}
         <div className="lg:col-span-5 space-y-3 max-h-[480px] overflow-y-auto pr-1">
           {libraries.length === 0 ? (
-            <div className="text-center py-12 text-slate-400 text-xs">
+            <div className="bg-white rounded-2xl border border-slate-200/80 p-12 text-center text-slate-400 text-xs">
               No approved libraries found matching your criteria.
             </div>
           ) : (
@@ -195,25 +186,27 @@ export const Discover: React.FC = () => {
                 onClick={() => setSelectedLibraryId(lib.id)}
                 className={`p-4 rounded-2xl border transition-all cursor-pointer ${
                   selectedLibraryId === lib.id
-                    ? 'border-primary bg-primary/5 shadow-md'
-                    : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'
+                    ? 'border-primary bg-primary/5 shadow-sm'
+                    : 'bg-white border-slate-200/90 hover:border-slate-300 shadow-sm'
                 }`}
               >
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-2">
                   <div>
-                    <h4 className="font-bold text-slate-900 text-sm">{lib.name}</h4>
-                    <p className="text-[11px] text-slate-500 mt-0.5">{lib.address}</p>
+                    <h4 className="font-bold text-slate-900 text-sm leading-snug">{lib.name}</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">{lib.address}</p>
                   </div>
                   <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      lib.isFree ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                    className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+                      lib.isFree
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200/60'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
                     }`}
                   >
                     {lib.isFree ? 'Free' : 'Paid'}
                   </span>
                 </div>
 
-                <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center gap-3 text-xs text-slate-500 mt-3 pt-2.5 border-t border-slate-100">
                   <span className="font-semibold text-primary">
                     {lib.distanceKm ? `${lib.distanceKm} km away` : lib.city}
                   </span>
@@ -225,7 +218,7 @@ export const Discover: React.FC = () => {
 
                 <Link
                   to={`/app/libraries/${lib.id}/book`}
-                  className="mt-3 block w-full py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs text-center transition-colors"
+                  className="mt-3.5 block w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white font-semibold text-xs text-center transition-all shadow-sm"
                 >
                   Inspect Floor Layout & Book →
                 </Link>

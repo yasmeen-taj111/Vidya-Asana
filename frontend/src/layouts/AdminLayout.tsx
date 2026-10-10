@@ -108,66 +108,67 @@ export const AdminLayout: React.FC = () => {
   const isProfilePage = location.pathname === '/admin/profile';
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-navy text-white shadow-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <Link to="/admin" className="flex items-center gap-2.5 font-bold text-lg text-white">
-              <div className="w-8 h-8 rounded-lg bg-teal flex items-center justify-center text-white">
-                <Building className="w-4 h-4" />
-              </div>
-              <span className="hidden sm:inline">{library?.name || 'Library Admin'}</span>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-teal/20 text-teal-light font-semibold">
-                Admin
-              </span>
-            </Link>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="text-right hidden sm:block">
-              <p className="text-xs font-semibold leading-tight">{user?.name}</p>
-              <p className="text-[11px] text-slate-300 font-mono">{user?.email}</p>
+    <div className="min-h-screen flex flex-col bg-slate-50/50 text-slate-900 pb-16 md:pb-0">
+      {/* Curved Full-Round Floating Top Navbar (Admin) */}
+      <header className="sticky top-3.5 z-40 px-2 sm:px-4 w-full max-w-[98vw] 2xl:max-w-[1550px] mx-auto transition-all">
+        <div className="bg-white/95 backdrop-blur-md border-2 border-slate-200 shadow-md shadow-slate-900/5 rounded-full px-4 sm:px-5 xl:px-6 py-2 flex items-center justify-between gap-2 lg:gap-4 xl:gap-6">
+          {/* Left: Logo */}
+          <Link to="/admin" className="flex items-center gap-2.5 tracking-tight group shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-md shadow-primary/30 group-hover:scale-105 transition-transform">
+              <Building className="w-5 h-5" />
             </div>
-            <button
-              onClick={handleLogout}
-              className="p-2 rounded-xl bg-white/10 hover:bg-rose-600 text-slate-200 hover:text-white transition-all"
-              title="Logout"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
+            <span className="font-extrabold text-[22px] xl:text-[23px] text-navy">
+              Vidya<span className="text-accent font-black">Asana</span>
+            </span>
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider hidden sm:inline-block">
+              Admin
+            </span>
+          </Link>
 
-        {/* Tab Navigation */}
-        {!isRejected && (
-          <div className="bg-navy-dark border-t border-white/10 px-4 sm:px-8 overflow-x-auto">
-            <div className="max-w-7xl mx-auto flex items-center gap-1 py-1">
+          {/* Center: Navigation Buttons */}
+          {!isRejected && (
+            <nav className="hidden lg:flex items-center justify-center gap-1 xl:gap-2 flex-1 mx-2">
               {(isPending ? pendingNavItems : navItems).map((item) => {
-                const Icon = item.icon;
                 const active = location.pathname === item.path;
                 return (
                   <Link
                     key={item.path}
                     to={item.path}
-                    className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all ${
+                    className={`px-3 xl:px-4 py-1.5 rounded-full text-[14px] xl:text-[15px] font-bold whitespace-nowrap transition-all ${
                       active
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'text-slate-300 hover:text-white hover:bg-white/5'
+                        ? 'bg-primary text-white shadow-sm shadow-primary/30'
+                        : 'text-slate-700 hover:text-navy hover:bg-slate-100'
                     }`}
                   >
-                    <Icon className="w-3.5 h-3.5" />
                     <span>{item.label}</span>
                   </Link>
                 );
               })}
+            </nav>
+          )}
+
+          {/* Right: Admin Profile & Actions */}
+          <div className="flex items-center gap-2.5 sm:gap-3 xl:gap-3.5 shrink-0">
+            <div className="hidden sm:block text-right whitespace-nowrap max-w-[160px] xl:max-w-none">
+              <p className="text-[14px] xl:text-[15px] font-bold text-slate-900 leading-tight truncate">{library?.name || user?.name || 'Library Admin'}</p>
+              <p className="text-[11px] text-slate-500 font-mono font-medium leading-none pt-0.5 truncate">{user?.email}</p>
             </div>
+
+            <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+            <button
+              onClick={handleLogout}
+              className="p-2 rounded-full text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
+              title="Logout"
+            >
+              <LogOut className="w-4 h-4 stroke-[2.25]" />
+            </button>
           </div>
-        )}
+        </div>
       </header>
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {loading ? (
           <div className="text-center py-20 space-y-3">
             <div className="w-9 h-9 border-4 border-primary/25 border-t-primary rounded-full animate-spin mx-auto" />
@@ -207,7 +208,7 @@ export const AdminLayout: React.FC = () => {
           </div>
         ) : isPending && isProfilePage ? (
           <div>
-            <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3 max-w-2xl mx-auto">
+            <div className="mb-6 p-4 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-between flex-wrap gap-3 max-w-2xl mx-auto shadow-xs">
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-600 flex items-center justify-center shrink-0">
                   <AlertTriangle className="w-4 h-4" />

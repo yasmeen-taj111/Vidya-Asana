@@ -70,8 +70,8 @@ export const Waitlist: React.FC = () => {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-          <Clock className="w-5 h-5 text-primary" /> Waitlist Queue & Notifications
+        <h2 className="text-xl font-bold text-slate-900 tracking-tight">
+          Waitlist Queue & Notifications
         </h2>
         <p className="text-xs text-slate-500 mt-1">
           FIFO waitlist recovers cancelled or no-show seats with a 10-minute prioritized claim window.
