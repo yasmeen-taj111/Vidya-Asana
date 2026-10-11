@@ -24,7 +24,7 @@ export async function ensureLibraryDefaults(libraryId: string): Promise<void> {
 
       for (const slot of defaultSlots) {
         await execute(
-          'INSERT INTO time_slots (id, library_id, name, start_time, end_time, is_free, price_paise, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+          'INSERT IGNORE INTO time_slots (id, library_id, name, start_time, end_time, is_free, price_paise, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
           [generateUUID(), libraryId, slot.name, slot.startTime, slot.endTime, slot.isFree ? 1 : 0, slot.pricePaise]
         );
       }
@@ -39,18 +39,18 @@ export async function ensureLibraryDefaults(libraryId: string): Promise<void> {
     if (existingFloors.length === 0) {
       floorId = generateUUID();
       await execute(
-        'INSERT INTO floors (id, library_id, floor_number, label, `rows`, `cols`) VALUES (?, ?, 1, ?, ?, ?)',
+        'INSERT IGNORE INTO floors (id, library_id, floor_number, label, `rows`, `cols`) VALUES (?, ?, 1, ?, ?, ?)',
         [floorId, libraryId, 'Floor 1 - Main Study Hall', rows, cols]
       );
 
       // Floor cells: Door at (0, 0), Window Wall at (0, 4)
-      await execute('INSERT INTO floor_cells (id, floor_id, `row`, `col`, cell_type) VALUES (?, ?, 0, 0, "DOOR")', [generateUUID(), floorId]);
-      await execute('INSERT INTO floor_cells (id, floor_id, `row`, `col`, cell_type) VALUES (?, ?, 0, 4, "WINDOW_WALL")', [generateUUID(), floorId]);
+      await execute('INSERT IGNORE INTO floor_cells (id, floor_id, `row`, `col`, cell_type) VALUES (?, ?, 0, 0, "DOOR")', [generateUUID(), floorId]);
+      await execute('INSERT IGNORE INTO floor_cells (id, floor_id, `row`, `col`, cell_type) VALUES (?, ?, 0, 4, "WINDOW_WALL")', [generateUUID(), floorId]);
     } else {
       floorId = existingFloors[0].id;
     }
 
-    const existingSeats = await query('SELECT id FROM seats WHERE floor_id = ?', [floorId]);
+    const existingSeats = await query('SELECT id FROM seats WHERE library_id = ?', [libraryId]);
     if (existingSeats.length === 0) {
       for (let r = 0; r < rows; r++) {
         for (let c = 0; c < cols; c++) {
@@ -62,7 +62,7 @@ export async function ensureLibraryDefaults(libraryId: string): Promise<void> {
           const isWindow = c === 0 || c === cols - 1;
 
           await execute(
-            'INSERT INTO seats (id, floor_id, library_id, label, seat_type, facing, attr_window, attr_power_outlet, attr_quiet_zone, attr_near_door, is_active, grid_row, grid_col) VALUES (?, ?, ?, ?, ?, "N", ?, 1, 1, ?, 1, ?, ?)',
+            'INSERT IGNORE INTO seats (id, floor_id, library_id, label, seat_type, facing, attr_window, attr_power_outlet, attr_quiet_zone, attr_near_door, is_active, grid_row, grid_col) VALUES (?, ?, ?, ?, ?, "N", ?, 1, 1, ?, 1, ?, ?)',
             [seatId, floorId, libraryId, label, seatType, isWindow ? 1 : 0, r >= rows - 2 ? 1 : 0, r, c]
           );
         }
