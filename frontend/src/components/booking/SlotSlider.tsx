@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format, addDays, parseISO, isSameDay } from 'date-fns';
 import { Minus, Plus, Calendar, Clock, AlertTriangle, ShieldAlert, ChevronLeft, ChevronRight } from 'lucide-react';
-import { UnbookableInterval } from '../../api/types';
+import { UnbookableInterval, Booking } from '../../api/types';
 
 export interface SelectedSlotRange {
   startTime: string; // 'HH:mm'
@@ -10,12 +10,15 @@ export interface SelectedSlotRange {
   label: string;     // '12:30 PM - 1:30 PM'
   isClosed: boolean;
   closureReason?: string;
+  isOverlapping?: boolean;
+  overlappingBooking?: Booking;
 }
 
 interface SlotSliderProps {
   selectedDate: string; // 'YYYY-MM-DD'
   onSelectDate: (date: string) => void;
   unbookableIntervals?: UnbookableInterval[];
+  userBookings?: Booking[];
   onSlotChange: (slot: SelectedSlotRange) => void;
   initialStartTime?: string;
   initialDurationMins?: number;
@@ -61,6 +64,7 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
   selectedDate,
   onSelectDate,
   unbookableIntervals = [],
+  userBookings = [],
   onSlotChange,
   initialStartTime,
   initialDurationMins = 60,
@@ -172,6 +176,30 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
     });
   }, [unbookableIntervals, selectedDate, startTick.timeStr, endTimeStr]);
 
+  // Filter active user bookings on the selected date
+  const sameDayBookings = useMemo(() => {
+    const normSelected = selectedDate.includes('T') ? selectedDate.split('T')[0] : selectedDate;
+    return (userBookings || []).filter((b) => {
+      const normDate = b.date?.includes('T') ? b.date.split('T')[0] : b.date;
+      return (
+        normDate === normSelected &&
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN') &&
+        b.slot?.startTime &&
+        b.slot?.endTime
+      );
+    });
+  }, [userBookings, selectedDate]);
+
+  // Check if current slot selection overlaps with any existing booking of the user
+  const overlappingBooking = useMemo(() => {
+    const reqStart = startTick.timeStr;
+    const reqEnd = endTimeStr;
+
+    return sameDayBookings.find((b) => {
+      return b.slot.startTime < reqEnd && b.slot.endTime > reqStart;
+    });
+  }, [sameDayBookings, startTick.timeStr, endTimeStr]);
+
   // Notify parent of slot changes
   useEffect(() => {
     onSlotChange({
@@ -181,8 +209,10 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
       label: `${startTick.label} - ${endLabel}`,
       isClosed: !!overlappingClosure,
       closureReason: overlappingClosure?.reason,
+      isOverlapping: !!overlappingBooking,
+      overlappingBooking,
     });
-  }, [startTick.timeStr, endTimeStr, duration, overlappingClosure]);
+  }, [startTick.timeStr, endTimeStr, duration, overlappingClosure, overlappingBooking]);
 
   // Stepper handlers
   const handleDecrementDuration = () => {
@@ -263,14 +293,44 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
         </div>
       </div>
 
-      {/* 2. Selected Time & Duration Card (Exact Match to Screenshot) */}
-      <div className="bg-slate-50/70 border border-slate-200/90 rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Left Side: Light Blue Time Pill */}
-        <div className="w-full sm:w-auto bg-[#eaf4fd] border border-sky-100/80 rounded-xl px-4 py-3 flex flex-col items-start min-w-[200px]">
-          <span className="text-xs font-semibold text-sky-900/80 uppercase tracking-wider">
-            Time
-          </span>
-          <span className="text-base sm:text-lg font-black text-sky-950 mt-0.5">
+      {/* 2. Selected Time & Duration Card (Exact Match with Overlap Dynamic State) */}
+      <div className={`border rounded-2xl p-3 sm:p-4 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all ${
+        overlappingBooking
+          ? 'bg-amber-50/70 border-amber-300 ring-2 ring-amber-400/20'
+          : overlappingClosure
+          ? 'bg-rose-50/70 border-rose-300'
+          : 'bg-slate-50/70 border-slate-200/90'
+      }`}>
+        {/* Left Side: Time Pill with Dynamic Overlap Notification Indicator */}
+        <div className={`w-full sm:w-auto rounded-xl px-4 py-3 flex flex-col items-start min-w-[200px] border transition-colors ${
+          overlappingBooking
+            ? 'bg-amber-100/80 border-amber-300 text-amber-950'
+            : overlappingClosure
+            ? 'bg-rose-100/80 border-rose-300 text-rose-950'
+            : 'bg-[#eaf4fd] border-sky-100/80 text-sky-950'
+        }`}>
+          <div className="flex items-center justify-between w-full gap-2">
+            <span className={`text-xs font-semibold uppercase tracking-wider ${
+              overlappingBooking
+                ? 'text-amber-800'
+                : overlappingClosure
+                ? 'text-rose-800'
+                : 'text-sky-900/80'
+            }`}>
+              Time
+            </span>
+            {overlappingBooking && (
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-200 text-amber-900 border border-amber-300 animate-pulse">
+                Conflict
+              </span>
+            )}
+            {overlappingClosure && !overlappingBooking && (
+              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-200 text-rose-900 border border-rose-300">
+                Closed
+              </span>
+            )}
+          </div>
+          <span className="text-base sm:text-lg font-black mt-0.5">
             {startTick.label} – {endLabel}
           </span>
         </div>
@@ -310,6 +370,36 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Dynamic Overlap Warning Banner */}
+      {overlappingBooking && (
+        <div className="p-4 rounded-2xl bg-amber-50 border border-amber-300 text-amber-900 flex items-start gap-3.5 animate-fade-in shadow-xs">
+          <div className="p-2 rounded-xl bg-amber-100 border border-amber-200 text-amber-800 shrink-0 mt-0.5">
+            <AlertTriangle className="w-5 h-5 stroke-[2.5]" />
+          </div>
+          <div className="space-y-1.5 flex-1 min-w-0">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <h4 className="text-xs font-black uppercase tracking-wider text-amber-950 flex items-center gap-1.5">
+                Overlapping Session Detected
+              </h4>
+              <span className="text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-200/90 text-amber-950 border border-amber-300">
+                Existing Booking
+              </span>
+            </div>
+            <p className="text-xs text-amber-900 leading-relaxed">
+              You already have an active reservation on this date from{' '}
+              <strong className="underline decoration-amber-500 font-black">
+                {overlappingBooking.slot.startTime} to {overlappingBooking.slot.endTime}
+              </strong>{' '}
+              at <strong>{overlappingBooking.libraryName}</strong>
+              {overlappingBooking.seat?.label ? ` (Seat ${overlappingBooking.seat.label})` : ''}.
+            </p>
+            <p className="text-[11px] text-amber-700 font-medium">
+              Please drag the slider or adjust the duration to pick an open time slot that does not clash with this session.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* 3. Negative Booking / Past Times Alert if all today's slots ended */}
       {isToday && firstAvailableTickIndex >= ALL_TICKS.length - (duration / STEP_MINS) && (
@@ -440,6 +530,47 @@ export const SlotSlider: React.FC<SlotSliderProps> = ({
                 >
                   <span className="text-[10px] font-bold text-rose-800 bg-white/90 px-1.5 py-0.5 rounded shadow-xs truncate max-w-[90%]">
                     {interval.reason}
+                  </span>
+                </div>
+              );
+            })}
+
+            {/* Existing User Bookings Overlays on Ruler Track */}
+            {sameDayBookings.map((b) => {
+              const [sh, sm] = b.slot.startTime.split(':').map(Number);
+              const [eh, em] = b.slot.endTime.split(':').map(Number);
+              const sMins = sh * 60 + sm;
+              const eMins = eh * 60 + em;
+
+              const baseMins = ALL_TICKS[0].minutes;
+              const leftPx = ((sMins - baseMins) / 30) * TICK_WIDTH_PX + TICK_WIDTH_PX / 2;
+              const widthPx = ((eMins - sMins) / 30) * TICK_WIDTH_PX;
+
+              if (widthPx <= 0) return null;
+              const isCurrentOverlap = overlappingBooking?.id === b.id;
+
+              return (
+                <div
+                  key={b.id}
+                  style={{
+                    left: `${Math.max(0, leftPx)}px`,
+                    width: `${widthPx}px`,
+                  }}
+                  title={`Your Reservation: ${b.slot.startTime} - ${b.slot.endTime} (${b.libraryName})`}
+                  className={`absolute top-[20px] h-[36px] rounded border-x-2 flex items-center justify-center pointer-events-auto transition-all ${
+                    isCurrentOverlap
+                      ? 'bg-amber-500/25 border-amber-500 ring-2 ring-amber-400/50 shadow-sm z-20'
+                      : 'bg-indigo-500/15 border-indigo-400/80 z-10'
+                  }`}
+                >
+                  <span
+                    className={`text-[10px] font-black px-1.5 py-0.5 rounded shadow-xs truncate max-w-[95%] ${
+                      isCurrentOverlap
+                        ? 'bg-amber-100 text-amber-950 border border-amber-300'
+                        : 'bg-indigo-50 text-indigo-900 border border-indigo-200'
+                    }`}
+                  >
+                    {isCurrentOverlap ? '⚠️ Conflict: Your Booking' : `My Booking: ${b.slot.startTime}–${b.slot.endTime}`}
                   </span>
                 </div>
               );

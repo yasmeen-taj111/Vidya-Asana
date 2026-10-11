@@ -60,6 +60,7 @@ export const Book: React.FC = () => {
     durationMins: 60,
     label: '12:30 PM - 1:30 PM',
     isClosed: false,
+    isOverlapping: false,
   });
   const [intervals, setIntervals] = useState<UnbookableInterval[]>([]);
   const [selectedSeat, setSelectedSeat] = useState<Seat | null>(null);
@@ -404,6 +405,7 @@ export const Book: React.FC = () => {
             selectedDate={selectedDate}
             onSelectDate={handleSelectDate}
             unbookableIntervals={intervals}
+            userBookings={userBookings}
             onSlotChange={(range) => {
               setSliderRange(range);
               setSelectedSeat(null);
@@ -412,13 +414,39 @@ export const Book: React.FC = () => {
             initialDurationMins={sliderRange.durationMins}
           />
 
-          <div className="flex justify-end pt-2">
+          <div className="flex flex-col sm:flex-row items-end sm:items-center justify-between gap-4 pt-2">
+            {sliderRange.isOverlapping ? (
+              <div className="flex items-center gap-2 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-300 px-3.5 py-2.5 rounded-2xl shadow-xs">
+                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>
+                  Conflict detected: Overlaps with your booking at <strong>{sliderRange.overlappingBooking?.libraryName}</strong> ({sliderRange.overlappingBooking?.slot.startTime}–{sliderRange.overlappingBooking?.slot.endTime}). Please adjust the slider to proceed.
+                </span>
+              </div>
+            ) : sliderRange.isClosed ? (
+              <div className="flex items-center gap-2 text-xs font-semibold text-rose-800 bg-rose-50 border border-rose-300 px-3.5 py-2.5 rounded-2xl shadow-xs">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                <span>
+                  Library is closed during selected time ({sliderRange.closureReason || 'Closed'}). Please adjust the slider.
+                </span>
+              </div>
+            ) : (
+              <div className="text-xs text-slate-500 font-medium hidden sm:block">
+                Selected duration: <span className="font-bold text-slate-900">{sliderRange.durationMins} mins</span> ({sliderRange.label})
+              </div>
+            )}
+
             <button
               onClick={() => setStep(2)}
-              disabled={sliderRange.isClosed}
-              className="px-8 py-3.5 rounded-2xl bg-primary hover:bg-primary-hover text-white font-bold text-xs shadow-lg shadow-primary/25 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={sliderRange.isClosed || sliderRange.isOverlapping}
+              className={`px-8 py-3.5 rounded-2xl font-bold text-xs shadow-lg transition-all flex items-center gap-2 shrink-0 ${
+                sliderRange.isOverlapping
+                  ? 'bg-amber-500/80 text-white cursor-not-allowed shadow-amber-500/20'
+                  : sliderRange.isClosed
+                  ? 'bg-rose-500/80 text-white cursor-not-allowed shadow-rose-500/20'
+                  : 'bg-primary hover:bg-primary-hover text-white shadow-primary/25'
+              } disabled:cursor-not-allowed`}
             >
-              <span>Continue to Seat Selection</span>
+              <span>{sliderRange.isOverlapping ? 'Cannot Continue: Slot Overlaps' : 'Continue to Seat Selection'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
