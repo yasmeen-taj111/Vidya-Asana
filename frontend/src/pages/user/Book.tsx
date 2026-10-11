@@ -399,13 +399,6 @@ export const Book: React.FC = () => {
       {/* Step 1: Slider-Based Time & Duration Selection (Matches Reference Image) */}
       {step === 1 && (
         <div className="space-y-6 animate-fade-in">
-          {/* Subtle Amenity / Karma Banner from Reference Image */}
-          <div className="bg-[#eaf4fd] border border-sky-200/60 text-sky-900 rounded-2xl py-3 px-4 flex items-center justify-center gap-2 text-xs sm:text-sm font-bold tracking-wide shadow-xs">
-            <span className="text-sky-600">✧</span>
-            <span>Earn 3 karma points on every booking</span>
-            <span className="text-sky-600">✧</span>
-          </div>
-
           {/* Interactive SlotSlider */}
           <SlotSlider
             selectedDate={selectedDate}
