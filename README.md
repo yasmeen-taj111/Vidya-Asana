@@ -1,4 +1,4 @@
-# Vidya Asana (विद्या आसन) 📚✨
+# Vidya Asana (विद्या आसन) 
 
 > **Smart Library Seat Allocation, Intelligent Reservation Matrix & Focus Productivity Platform**  
 > *Built for CBC 2.0 Hackathon — Team CB049*
@@ -15,215 +15,316 @@
 
 ---
 
-## 📖 Executive Summary
+## About the Project
 
-Public libraries, municipal reading rooms, and university study halls frequently suffer from:
-1. **Unfair Desk Hogging & Seat Abandonment:** Users leave belongings on desks for hours without studying.
-2. **Double-Booking & Queue Disputes:** Physical paper registers or disconnected systems result in reservation collisions.
-3. **No-Show Inefficiency:** Desks remain empty while other students are turned away.
-4. **Lack of Discovery & Transparency:** Students have no easy way to find quiet reading spaces, check free vs. paid admissions, or locate amenities like power outlets and natural lighting.
+**Vidya Asana** is a smart library seat reservation and study productivity platform designed to simplify study-space discovery, eliminate booking conflicts, and improve library resource utilization.
 
-**Vidya Asana** is a comprehensive, production-grade web platform solving these challenges through an ACID-compliant reservation engine, interactive timeline slot slider, tamper-proof QR check-in workflows, real-time waitlist automation, and built-in focus productivity tools.
+Students can discover nearby libraries, select seats based on their preferences, reserve study spaces for specific time slots, and track their productivity. Library administrators can manage floor layouts, monitor occupancy, handle walk-ins, and automate reservation workflows.
+
+The platform combines intelligent seat matching, secure QR-based check-ins, real-time availability, automated waitlists, and AI-powered assistance in one application.
+
+## Key Features
+
+### Student Dashboard
+- Discover nearby libraries and explore their facilities.
+- Filter seats by type, availability, duration, and preferences.
+- View interactive floor grids and reserve suitable seats.
+- Receive QR-based booking confirmations.
+- Cancel reservations and join waitlists.
+- Receive reservation reminders and status notifications.
+- Use Pomodoro timers, focus sessions, streaks, and leaderboards.
+- Interact with AsanaBot for library and study assistance.
+
+### Library Administrator Dashboard
+- Create and manage library floors and seating arrangements.
+- Automatically generate seat grids and customize individual seats.
+- Configure individual desks, computer-enabled seats, group tables, and accessible spaces.
+- Manage operating hours, time slots, pricing, and facilities.
+- Scan QR passes and manage student check-ins.
+- Handle walk-in bookings and release occupied seats when appropriate.
+- Monitor occupancy, reservations, and utilization analytics.
+- Export reports in PDF and CSV formats.
+
+### Website Owner Dashboard
+- Review library registration requests.
+- Approve or reject library applications.
+- Notify library administrators of approval decisions.
+- Monitor registered libraries and platform-level statistics.
+
+### Intelligent Reservation Engine
+- Match seat requirements with available spaces.
+- Recommend alternatives based on natural light, quiet zones, AC, power outlets, and other preferences.
+- Prevent overlapping reservations.
+- Handle simultaneous booking attempts safely.
+- Release eligible seats after cancellation or no-show.
+- Notify eligible students when waitlisted seats become available.
+
+### Security and Real-Time Features
+- JWT-based authentication and role-based access.
+- HMAC-SHA256-signed QR passes.
+- Transactional reservation processing.
+- Rate limiting for sensitive endpoints.
+- Socket.IO updates for live seat availability and waitlist events.
+- Scheduled background jobs for reservation expiry and waitlist processing.
 
 ---
 
-## 🌟 Key Highlights & Features
+## Tech Stack
 
-### 1. Interactive Timeline Slot Slider & Dynamic Overlap Detection
-- **Timeline Ruler:** 30-minute granularity, customizable duration (1 to 8 hours), with auto-disabled past hours for today.
-- **Dynamic Overlap Alerting:** Evaluates user reservations in real-time as the slider is dragged. If a conflict occurs, the overlapping session is highlighted directly on the timeline ruler, an alert card details the existing booking, and the proceed button is safely locked.
-- **Blackout Closure Overlays:** Administrative closures and sanitization intervals appear as clear blackout zones on the slider.
-
-### 2. Intelligent Seat Selection & ACID Isolation
-- **Visual Floor Grid:** Interactive seat maps displaying individual desks, computer workstations, quiet zones, and accessible seating.
-- **Zero Double-Booking Guarantee:** Protected via MySQL transactions with row-level `FOR UPDATE` locking and composite unique constraints (`uq_seat_active_slot`).
-- **Conflict Alternative Recommendations:** Preference-weighted scoring algorithm (considering natural light, quiet zones, and power outlets) recommending alternative desks when preferred seats are occupied.
-
-### 3. Geocoding & Interactive Map Discovery
-- **Mapbox Geocoding Integration:** Auto-resolves latitude and longitude coordinates from library street addresses and landmarks.
-- **Interactive Pin Adjustment:** Administrators can drag entrance pins on interactive maps for exact GPS placement.
-- **Public Discovery & Permanent Indicators:** Interactive maps and listings display permanent library name indicators, distance calculations, and transparent Free vs. Paid admission badges.
-
-### 4. Digital QR Passes, Buffer Automation & No-Show Recovery
-- **HMAC-SHA256 Signed Passes:** Cryptographically tamper-proof QR codes and human-readable codes (e.g., `VA-8F3K2`).
-- **Arrival Confirmation & 15-Minute Buffer:** Automatic popup notifications allow users to confirm arrival during active slots. If a student fails to check in within the grace buffer, the system automatically cancels the seat.
-- **Automated Waitlist Chain:** Released desks are automatically offered to the next waitlisted student with a 10-minute priority claiming window.
-
-### 5. Multi-Role Management & Governance
-- **Student Portal:** Discovery map, slot selection, interactive seat grid, digital QR pass, waitlists, focus room (Pomodoro timer), and streaks leaderboard.
-- **Library Admin Portal:** Overview with live occupancy metrics, visual floor grid editor, unbookable intervals management, walk-in ticket issuer, QR pass camera scanner, and CSV/PDF report downloads.
-- **Platform Owner Portal:** Network governance, library application reviews, physical verification controls, and cross-library metrics.
-- **VidyaBot AI Assistant:** Context-aware study companion for navigation, study tips, and slot queries.
+| Component | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite |
+| Styling | Tailwind CSS |
+| Backend | Node.js, Express, TypeScript |
+| Database | MySQL 8 |
+| Real-time Communication | Socket.IO |
+| Mock API | Mock Service Worker (MSW) |
+| Background Jobs | node-cron |
+| Authentication | JSON Web Tokens (JWT) |
+| QR Security | HMAC-SHA256 |
+| Maps | Leaflet.js |
+| Testing | Vitest and project-specific unit tests |
+| Reporting | PDF and CSV export |
 
 ---
 
-## 🏗️ System Architecture
+## Project Structure
 
-```
+```text
 Vidya-Asana/
-├── contract/                       # API Contract v1.0 specifications & JSON fixtures
-├── frontend/                       # Vite + React 18 + TypeScript + Tailwind CSS
-│   ├── src/api/                    # Axios API clients with typed schemas
-│   ├── src/components/             # SlotSlider, SeatGrid, QRScanner, LocationPicker, Map
-│   ├── src/layouts/                # UserLayout, AdminLayout, OwnerLayout, PublicLayout
-│   ├── src/pages/                  # Discover, Book, Study, Analytics, Overview, Register
-│   ├── src/mocks/                  # Complete MSW mock layer (enables 100% offline demo mode)
-│   ├── src/realtime/               # Socket.IO client hooks for live seat updates
-│   └── src/tests/                  # 43 Vitest automated unit & integration tests
-└── backend/                        # Node.js + Express + TypeScript + MySQL 8 + Socket.IO
-    ├── db/                         # SQL schema (12 tables), init script, and seed data
-    ├── src/config/                 # Database pool connection & environment config
-    ├── src/middleware/             # JWT auth, rate limiting, and global error handling
-    ├── src/modules/                # Auth, Discovery, Bookings, Waitlist, Admin, Owner, Study
-    ├── src/realtime/               # Socket.IO server broadcasting live seat updates
-    ├── src/jobs/                   # Node-cron scheduler for no-show releases & waitlist claims
-    └── tests/                      # 24 Vitest automated unit tests
+├── contract/                  # API contracts and fixtures
+├── frontend/
+│   └── src/
+│       ├── mocks/             # MSW mock handlers
+│       ├── components/        # Reusable UI components
+│       └── pages/             # Application dashboards
+└── backend/
+    ├── db/                    # Schema, initialization and seeding
+    └── src/
+        ├── modules/           # Auth, discovery, bookings, waitlist,
+        │                      # study, admin and owner modules
+        ├── realtime/          # Socket.IO events
+        └── jobs/              # Scheduled background jobs
 ```
 
 ---
 
-## 🚀 Quick Start Guide
+## Getting Started
 
-### Option A: Instant Frontend Demo (100% Offline with MSW)
-The frontend includes a built-in Mock Service Worker (MSW) layer containing all contract fixtures. You can evaluate the entire application immediately without configuring MySQL:
+### Prerequisites
+
+Install the following before running the application:
+
+- Node.js 18 or later
+- npm
+- MySQL 8.0 or later for backend mode
+- Git
+
+### 1. Clone the Repository
 
 ```bash
-# 1. Navigate to frontend
-cd frontend
-
-# 2. Install dependencies
-npm install
-
-# 3. Start development server
-npm run dev
+git clone <YOUR_GITHUB_REPOSITORY_URL>
+cd Vidya-Asana
 ```
 
-Open **`http://localhost:5173`** in your browser.
-> **Tip:** Use the floating **Dev Panel** in the bottom-right corner to toggle between roles (`STUDENT`, `LIBRARY_ADMIN`, `SITE_OWNER`) and simulate seat conflicts with a single click.
+Replace the repository URL with your actual GitHub repository URL.
 
----
+### 2. Configure the Backend
 
-### Option B: Full-Stack Setup (Frontend + Backend + MySQL)
+Create `backend/.env` and configure the required environment variables.
 
-#### Prerequisites
-- Node.js 18+ & npm
-- MySQL Server 8.0+ running on `localhost:3306`
-
-#### 1. Backend Configuration
-Create or verify `backend/.env`:
 ```env
 PORT=4000
 CLIENT_ORIGIN=http://localhost:5173
+
 DB_HOST=localhost
 DB_PORT=3306
 DB_USER=root
 DB_PASSWORD=your_mysql_password
 DB_NAME=vidya_asana
-JWT_SECRET=super_secret_jwt_key_vidya_asana_2026
-QR_HMAC_SECRET=super_secret_qr_hmac_key_2026
+
+JWT_SECRET=replace_with_a_secure_random_secret
+QR_HMAC_SECRET=replace_with_another_secure_random_secret
 ```
 
-#### 2. Initialize Database & Seed Sample Data
+**Important:** The variable names above must match those read by your backend code. If the application uses separate access-token and refresh-token secrets, configure those instead of assuming `JWT_SECRET` is sufficient.
+
+Generate strong secrets locally with:
+
+```bash
+openssl rand -hex 32
+```
+
+Keep real credentials in `.env`. Never commit your actual secrets to GitHub.
+
+### 3. Initialize the Database
+
+Ensure MySQL is running, then execute:
+
 ```bash
 cd backend
 npm install
-
-# Initialize MySQL tables (12 relational tables)
 npm run db:init
-
-# Seed initial libraries, floors, seats, slots, and demo accounts
 npm run seed
 ```
 
-#### 3. Start Backend Server
+These commands initialize the database schema and populate sample libraries, floors, seats, time slots, and demonstration accounts.
+
+The database initialization and seeding scripts must exist in the backend package configuration for these commands to work.
+
+### 4. Start the Backend
+
+From the `backend` directory:
+
 ```bash
 npm run dev
 ```
-- **REST API Base:** `http://localhost:4000/api/v1`
-- **Health Check:** `http://localhost:4000/api/v1/health`
-- **WebSocket (Socket.IO):** `http://localhost:4000`
 
-#### 4. Start Frontend Client
+The backend is expected to expose the following endpoints:
+
+| Service | URL |
+|---|---|
+| REST API | `http://localhost:4000/api/v1` |
+| Health Check | `http://localhost:4000/api/v1/health` |
+| Socket.IO | `http://localhost:4000` |
+
+### 5. Start the Frontend
+
+Open a second terminal:
+
 ```bash
-cd ../frontend
+cd frontend
 npm install
 npm run dev
 ```
-Open **`http://localhost:5173`** in your browser.
+
+Open [http://localhost:5173](http://localhost:5173) in your browser.
+
+If mock mode is enabled, you can explore the frontend using the MSW handlers without starting the backend. Use the Dev Panel, if available, to switch demo accounts and simulate seat conflicts.
 
 ---
 
-## 👥 Demo Credentials
+## Demo Credentials
 
-| Role | Email | Password | Primary Capabilities |
-|---|---|---|---|
-| **Site Owner** | `owner@vidyaasana.test` | `Owner@1234` | Approve/reject library registrations, network health |
-| **Library Admin** | `admin@vidyaasana.test` | `Admin@1234` | Floor layout designer, unbookable slots, QR scanner, reports |
-| **Student (Primary)** | `student@vidyaasana.test` | `Student@1234` | Slider booking, seat selection, QR pass, Pomodoro room |
-| **Student (Secondary)**| `student2@vidyaasana.test` | `Student@1234` | Multi-user booking tests & real-time waitlist claiming |
-| **Pending Admin** | `pending@vidyaasana.test` | `Admin@1234` | Verifies pending approval status guard screen |
+The following credentials are intended for local demonstrations when the database seed or mock configuration supports them.
+
+| Role | Email | Password |
+|---|---|---|
+| Site Owner | `owner@vidyaasana.test` | `Owner@1234` |
+| Library Admin | `admin@vidyaasana.test` | `Admin@1234` |
+| Student | `student@vidyaasana.test` | `Student@1234` |
+| Student 2 | `student2@vidyaasana.test` | `Student@1234` |
+| Pending Admin | `pending@vidyaasana.test` | `Admin@1234` |
+
+**Security note:** These are demonstration credentials only. Never use them in production or expose real user credentials in a public repository.
 
 ---
 
-## 🧪 Automated Testing & Quality Assurance
+## Automated Testing
 
-Vidya Asana maintains automated test coverage across both client and server:
+Run the frontend tests:
 
 ```bash
-# Run Frontend Tests (43 tests)
 cd frontend
 npm test
+```
 
-# Run Backend Tests (24 tests)
+Run the backend tests:
+
+```bash
 cd backend
 npm test
 ```
 
-### Verified Test Suites (67 Passing Tests)
-- **Frontend (43 tests):**
-  - Error code mappings & UI notification triggers.
-  - Interactive timeline slot interval calculation & negative booking validation.
-  - Multi-criteria recommendation scoring & preference matching.
-  - Floor grid cell layout parsing and status transitions.
-- **Backend (24 tests):**
-  - Cryptographic HMAC-SHA256 QR token verification and tamper resistance.
-  - Haversine geographical distance calculations for nearby library searches.
-  - ACID transaction isolation and duplicate key prevention.
-  - Waitlist position queue sorting and claim expiry logic.
+### Test Coverage
+
+The project reports **67 passing tests**, comprising 43 frontend tests and 24 backend tests. Re-run both suites before relying on this count.
+
+**Frontend test areas**
+- Error-code mapping and UI notifications.
+- Time-slot interval calculations.
+- Invalid booking validation.
+- Seat recommendation scoring.
+- Floor-grid layout and seat-status transitions.
+
+**Backend test areas**
+- HMAC-SHA256 QR token verification.
+- Geographic distance calculations.
+- Reservation conflict handling.
+- Duplicate-booking prevention.
+- Waitlist ordering and claim-expiry logic.
+
+Actual transaction isolation and concurrency guarantees should also be validated with integration tests against the configured MySQL database.
 
 ---
 
-## 📡 REST API Overview
+## REST API Overview
 
-| Method | Endpoint | Description | Auth Required |
+All paths below are relative to `/api/v1`.
+
+| Method | Endpoint | Description | Access |
 |---|---|---|---|
-| `GET` | `/api/v1/health` | Service health & uptime status | Public |
-| `POST` | `/api/v1/auth/login` | Authenticate user & issue JWT | Public |
-| `POST` | `/api/v1/auth/register` | Register new student account | Public |
-| `GET` | `/api/v1/libraries` | Discover libraries with geo-filtering | Public |
-| `GET` | `/api/v1/libraries/:id/grid` | Live floor seat matrix for date & slot | Public |
-| `POST` | `/api/v1/bookings` | Create atomic seat reservation | Student |
-| `GET` | `/api/v1/bookings/my` | Retrieve active & past bookings | Student |
-| `POST` | `/api/v1/waitlist/join` | Join waitlist queue for occupied seat | Student |
-| `POST` | `/api/v1/admin/scan-qr` | Scan & verify attendee QR entry pass | Library Admin |
-| `PATCH`| `/api/v1/admin/bookings/:id`| Update booking status (Check-in, No-show) | Library Admin |
-| `POST` | `/api/v1/owner/libraries/:id/approve` | Approve library registration | Site Owner |
+| `GET` | `/health` | Health and uptime status | Public |
+| `POST` | `/auth/login` | Authenticate a user | Public |
+| `POST` | `/auth/register` | Register a student | Public |
+| `GET` | `/libraries` | Discover libraries | Public |
+| `GET` | `/libraries/:id/grid` | Retrieve a library seat grid | Public |
+| `POST` | `/bookings` | Create a reservation | Student |
+| `GET` | `/bookings/my` | Retrieve personal bookings | Student |
+| `POST` | `/waitlist/join` | Join a waitlist | Student |
+| `POST` | `/admin/scan-qr` | Validate a check-in QR pass | Library Admin |
+| `PATCH` | `/admin/bookings/:id` | Update booking status | Library Admin |
+| `POST` | `/owner/libraries/:id/approve` | Approve a library | Site Owner |
+
+**Note:** Confirm these routes and their authorization rules against the actual backend implementation. This table documents the intended API surface, not a substitute for an API specification.
 
 ---
 
-## 🛡️ Security & Reliability Measures
+## Security and Reliability
 
-- **ACID Transactions:** MySQL transactions with `FOR UPDATE` locks prevent concurrent booking collisions.
-- **Idempotency Safeguards:** Unique reservation idempotency keys prevent duplicate charges or multi-clicks.
-- **Tamper-Proof QR Codes:** HMAC-SHA256 cryptographic signatures prevent forged passes.
-- **Rate Limiting:** IP-based and user-based sliding-window rate limiters defend against automated scraping and booking bots.
-- **Grace Period Scheduling:** Node-cron background jobs handle no-show releases and waitlist notifications reliably.
+- **Transactional bookings:** Use database transactions to keep reservation changes consistent.
+- **Concurrency protection:** Enforce seat availability and overlapping-booking rules at the database level where possible.
+- **Idempotency:** Prevent repeated booking requests from creating duplicate reservations.
+- **QR verification:** Verify signed QR payloads on the server and reject expired or tampered tokens.
+- **Role-based access:** Restrict administrative operations to authorized roles.
+- **Rate limiting:** Protect authentication, booking, and QR-validation endpoints.
+- **Background processing:** Handle configured no-show deadlines and waitlist notifications.
+- **Secret management:** Load credentials from environment variables and exclude `.env` from version control.
 
 ---
 
-## 📜 Team & Hackathon Information
+## Core Reservation Workflow
 
+1. A student searches for a library and specifies their seat requirements.
+2. The system checks availability for the requested date and duration.
+3. Suitable seats are displayed, with alternatives when the preferred option is unavailable.
+4. The student confirms the reservation.
+5. The backend validates the request and prevents conflicting bookings.
+6. A confirmation and QR pass are issued after the reservation is successfully committed.
+7. Check-in, cancellation, completion, and no-show processing update seat availability.
+8. Eligible waitlisted students are notified when a seat becomes available.
+
+---
+
+## Future Enhancements
+
+- More advanced library recommendation algorithms.
+- Enhanced utilization analytics and demand forecasting.
+- Expanded notification channels.
+- Improved accessibility and floor-plan editing.
+- Additional study insights and personalized productivity recommendations.
+
+---
+
+## Team and Hackathon Information
+
+- **Project:** Vidya Asana (विद्या आसन)
 - **Event:** CBC 2.0 Hackathon
 - **Team ID:** CB049
-- **Project:** Vidya Asana (विद्या आसन)
-- **License:** MIT License
+- **Team Members:** Shamanth P, Nabeel Shaikh, Shravya Hegde,Yasmeen Taj
+
+---
+
+### Vidya Asana
+
+*Find your seat. Focus on your future.*
