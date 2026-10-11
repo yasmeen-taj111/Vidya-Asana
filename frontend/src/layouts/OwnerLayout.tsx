@@ -5,6 +5,8 @@ import { ShieldCheck, LogOut, Building, BarChart3, BookOpen } from 'lucide-react
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
 
+import { NotificationBell } from '../components/NotificationBell';
+
 export const OwnerLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
@@ -40,6 +42,8 @@ export const OwnerLayout: React.FC = () => {
             </div>
 
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+            <NotificationBell />
 
             <button
               onClick={handleLogout}

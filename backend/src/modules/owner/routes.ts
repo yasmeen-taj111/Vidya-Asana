@@ -6,6 +6,7 @@ import { sendSuccess } from '../../utils/response';
 import { AppError } from '../../utils/errors';
 import { sendMail } from '../../config/mailer';
 import { ensureLibraryDefaults } from '../library/initLibrary';
+import { createNotification } from '../notifications/service';
 
 export const ownerRouter = Router();
 
@@ -184,6 +185,22 @@ ownerRouter.post('/libraries/:id/approve', async (req, res, next) => {
 </html>`,
     });
 
+    // In-app notification to library administrator
+    try {
+      const adminUsers = await query('SELECT id FROM users WHERE library_id = ?', [req.params.id]);
+      for (const a of adminUsers) {
+        await createNotification({
+          userId: a.id,
+          type: 'LIBRARY_APPROVED',
+          title: '🎉 Library Approved by Platform Administration!',
+          body: `Congratulations! "${library.name}" has been approved. You can now build floors, design seat layouts, and accept reservations.`,
+          data: { libraryId: req.params.id, type: 'LIBRARY_APPROVED' },
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[OwnerRouter] Failed to dispatch approval notification:', notifErr);
+    }
+
     sendSuccess(res, library);
   } catch (err) {
     next(err);
@@ -245,6 +262,22 @@ ownerRouter.post('/libraries/:id/reject', async (req, res, next) => {
 </body>
 </html>`,
     });
+
+    // In-app notification to library administrator
+    try {
+      const adminUsers = await query('SELECT id FROM users WHERE library_id = ?', [req.params.id]);
+      for (const a of adminUsers) {
+        await createNotification({
+          userId: a.id,
+          type: 'LIBRARY_REJECTED',
+          title: '⚠️ Library Listing Decision: Rejected',
+          body: `Your application for "${library.name}" was not approved. Decision notes: ${reason}`,
+          data: { libraryId: req.params.id, reason, type: 'LIBRARY_REJECTED' },
+        });
+      }
+    } catch (notifErr) {
+      console.warn('[OwnerRouter] Failed to dispatch rejection notification:', notifErr);
+    }
 
     sendSuccess(res, library);
   } catch (err) {

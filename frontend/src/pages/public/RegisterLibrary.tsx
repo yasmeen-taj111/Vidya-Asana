@@ -5,6 +5,7 @@ import { authApi } from '../../api/auth';
 import { useUiStore } from '../../store/uiStore';
 import {
   findStoredUserByEmail,
+  getStoredUsers,
   saveStoredUser,
   saveStoredLibrary,
   saveStoredFloorsForLibrary,
@@ -357,7 +358,7 @@ export const RegisterLibrary: React.FC = () => {
             powerOutlets,
           },
           isFree,
-          status: 'APPROVED' as const,
+          status: 'PENDING' as const,
           seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
           totalSeats: 0,
           floorCount: 0,
@@ -409,6 +410,7 @@ export const RegisterLibrary: React.FC = () => {
         ];
         saveStoredSlotsForLibrary(libId, initialSlots);
 
+        // Confirmation notice for the newly registered library admin
         addStoredNotification(newAdmin.id, {
           id: `notif-${Date.now()}`,
           title: 'Library Registration Submitted! 🏛️',
@@ -417,6 +419,19 @@ export const RegisterLibrary: React.FC = () => {
           isRead: false,
           createdAt: new Date().toISOString(),
         });
+
+        // High-priority review notice for platform super administrators / site owners
+        const owners = getStoredUsers().filter((u) => u.role === 'SITE_OWNER');
+        for (const owner of owners) {
+          addStoredNotification(owner.id, {
+            id: `notif-owner-req-${Date.now()}-${newLib.id}`,
+            title: '🏛️ New Library Registration: Review Required',
+            body: `"${newLib.name}" in ${newLib.city} has been submitted by ${newAdmin.name} (${newAdmin.email}). Please inspect the listing details to approve or reject.`,
+            type: 'SYSTEM',
+            isRead: false,
+            createdAt: new Date().toISOString(),
+          });
+        }
 
         setAuth(newAdmin, `mock-token-${newAdmin.id}-${Date.now()}`);
         addToast({

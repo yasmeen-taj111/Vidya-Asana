@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { ToastContainer } from '../components/ui/ToastContainer';
 import { DevPanel } from '../components/DevPanel';
+import { NotificationBell } from '../components/NotificationBell';
 
 export const AdminLayout: React.FC = () => {
   const { user, logout } = useAuthStore();
@@ -155,6 +156,8 @@ export const AdminLayout: React.FC = () => {
             </div>
 
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
+
+            <NotificationBell />
 
             <button
               onClick={handleLogout}

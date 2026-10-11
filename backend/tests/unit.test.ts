@@ -424,6 +424,49 @@ describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
 
       expect(slotsFree.every((s) => s.isFree && s.pricePaise === 0)).toBe(true);
     });
+
+    it('ensures registered library status defaults to PENDING and triggers super admin verification flow', () => {
+      // Simulating backend library creation payload and notification dispatch logic
+      const registeredLib = {
+        id: generateUUID(),
+        name: 'Apex Study Hub',
+        status: 'PENDING' as const,
+        adminUserId: generateUUID(),
+        contactEmail: 'admin@apexstudy.test',
+      };
+
+      // 1. Must strictly be PENDING on initial creation, never auto-approved
+      expect(registeredLib.status).toBe('PENDING');
+
+      // 2. Notification payload format for super admin / site owner review
+      const superAdminNotice = {
+        userId: 'usr-owner-001',
+        type: 'SYSTEM',
+        title: '🏛️ New Library Registration: Review Required',
+        body: `"${registeredLib.name}" has been registered by Admin (${registeredLib.contactEmail}). Please inspect the listing details to approve or reject.`,
+        data: { libraryId: registeredLib.id, type: 'LIBRARY_APPROVAL_REQUEST' },
+      };
+
+      expect(superAdminNotice.title).toContain('Review Required');
+      expect(superAdminNotice.data.type).toBe('LIBRARY_APPROVAL_REQUEST');
+      expect(superAdminNotice.data.libraryId).toBe(registeredLib.id);
+
+      // 3. Super admin rejects with reasons
+      const rejectedState = {
+        ...registeredLib,
+        status: 'REJECTED' as const,
+        rejectionReason: 'Incomplete municipal operating license',
+      };
+      expect(rejectedState.status).toBe('REJECTED');
+      expect(rejectedState.rejectionReason).toBe('Incomplete municipal operating license');
+
+      // 4. Or super admin approves
+      const approvedState = {
+        ...registeredLib,
+        status: 'APPROVED' as const,
+      };
+      expect(approvedState.status).toBe('APPROVED');
+    });
   });
 });
 

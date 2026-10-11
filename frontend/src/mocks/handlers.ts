@@ -267,6 +267,19 @@ export const handlers = [
       createdAt: new Date().toISOString(),
     });
 
+    // High-priority review notice for platform super administrators / site owners
+    const owners = getStoredUsers().filter((u) => u.role === 'SITE_OWNER');
+    for (const owner of owners) {
+      addStoredNotification(owner.id, {
+        id: `notif-owner-req-${Date.now()}-${newLib.id}`,
+        title: '🏛️ New Library Registration: Review Required',
+        body: `"${newLib.name}" in ${newLib.city} has been submitted by ${newAdmin.name} (${newAdmin.email}). Please inspect the listing details to approve or reject.`,
+        type: 'SYSTEM',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      });
+    }
+
     return HttpResponse.json({
       success: true,
       data: {

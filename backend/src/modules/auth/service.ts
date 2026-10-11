@@ -5,6 +5,7 @@ import { env } from '../../config/env';
 import { AppError } from '../../utils/errors';
 import { generateUUID } from '../../utils/ids';
 import { AuthUser } from '../../middleware/auth';
+import { createNotification } from '../notifications/service';
 
 export const authService = {
   generateTokens(user: AuthUser) {
@@ -92,7 +93,7 @@ export const authService = {
         libData.longitude,
         libData.contactEmail,
         libData.contactPhone || null,
-        'APPROVED',
+        'PENDING',
         libData.amenities?.lockers ? 1 : 0,
         libData.amenities?.cctv ? 1 : 0,
         libData.amenities?.ac ? 1 : 0,
@@ -143,6 +144,31 @@ export const authService = {
       );
     }
 
+    // High-priority notice to super admins / site owners to inspect and verify newly registered library
+    try {
+      const siteOwners = await query('SELECT id, email FROM users WHERE role = "SITE_OWNER"');
+      for (const owner of siteOwners) {
+        await createNotification({
+          userId: owner.id,
+          type: 'SYSTEM',
+          title: '🏛️ New Library Registration: Review Required',
+          body: `"${libData.name}" (${libData.city}) has been registered by ${adminData.name} (${adminData.email}). Please inspect the listing details to approve or reject.`,
+          data: { libraryId: libId, adminId: userId, type: 'LIBRARY_APPROVAL_REQUEST' },
+        });
+      }
+
+      // Confirmation notice to registering library admin
+      await createNotification({
+        userId,
+        type: 'SYSTEM',
+        title: 'Library Application Submitted! 🏛️',
+        body: `Your application for "${libData.name}" has been received and is pending platform administrator verification. You will be notified once reviewed.`,
+        data: { libraryId: libId, type: 'LIBRARY_REGISTRATION_SUBMITTED' },
+      });
+    } catch (notifErr) {
+      console.warn('[RegisterLibrary] Failed to dispatch registration notifications:', notifErr);
+    }
+
     const user = {
       id: userId,
       name: adminData.name,
@@ -163,7 +189,7 @@ export const authService = {
       longitude: libData.longitude,
       contactEmail: libData.contactEmail,
       contactPhone: libData.contactPhone,
-      status: 'APPROVED' as const,
+      status: 'PENDING' as const,
       amenities: libData.amenities,
       isFree: libData.isFree,
       seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },

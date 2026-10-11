@@ -1558,6 +1558,63 @@ describe('Library Isolation and Fresh Setup Flow', () => {
         testForm.isFree = true;
         expect(canSubmitRegistration(testForm).allowed).toBe(true);
       });
+
+      it('dispatches approval notice to super admin upon registration and requires explicit decision', () => {
+        const testLibId = `lib-super-notice-${Date.now()}`;
+        const testAdminId = `usr-admin-${Date.now()}`;
+        const ownerId = 'usr-owner-001';
+
+        // 1. Initial pending library
+        const newLib = {
+          id: testLibId,
+          name: 'Pinnacle Knowledge Hub',
+          address: '77 Residency Road',
+          city: 'Bengaluru',
+          latitude: 12.97,
+          longitude: 77.6,
+          contactEmail: 'admin@pinnacle.test',
+          amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+          isFree: false,
+          status: 'PENDING' as const,
+          seatCounts: { INDIVIDUAL: 0, GROUP: 0, ACCESSIBLE: 0, COMPUTER: 0 },
+          totalSeats: 0,
+          floorCount: 0,
+          createdAt: new Date().toISOString(),
+        };
+        saveStoredLibrary(newLib);
+
+        // 2. Dispatch notice to super admin (SITE_OWNER)
+        addStoredNotification(ownerId, {
+          id: `notif-owner-test-${Date.now()}`,
+          title: '🏛️ New Library Registration: Review Required',
+          body: `"${newLib.name}" in ${newLib.city} has been submitted by Admin (admin@pinnacle.test). Please inspect details to approve or reject.`,
+          type: 'SYSTEM',
+          isRead: false,
+          createdAt: new Date().toISOString(),
+        });
+
+        // 3. Super admin receives notification
+        const ownerNotifs = getUserNotifications(ownerId);
+        const reviewNotice = ownerNotifs.find((n) => n.title.includes('Review Required'));
+        expect(reviewNotice).toBeDefined();
+        expect(reviewNotice?.body).toContain('Pinnacle Knowledge Hub');
+
+        // 4. Library must not be auto-approved
+        const initialSavedLib = findStoredLibraryById(testLibId);
+        expect(initialSavedLib?.status).toBe('PENDING');
+
+        // 5. Super admin decides on rejection with explanation notes
+        const rejectedLib = updateStoredLibrary(testLibId, {
+          status: 'REJECTED',
+          rejectionReason: 'Invalid property lease agreement documents',
+        });
+        expect(rejectedLib?.status).toBe('REJECTED');
+        expect(rejectedLib?.rejectionReason).toBe('Invalid property lease agreement documents');
+
+        // 6. Or super admin decides to approve
+        const approvedLib = updateStoredLibrary(testLibId, { status: 'APPROVED' });
+        expect(approvedLib?.status).toBe('APPROVED');
+      });
     });
   });
 });
