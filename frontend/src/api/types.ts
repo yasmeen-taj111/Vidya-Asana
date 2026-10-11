@@ -153,6 +153,8 @@ export interface Notification {
   id: string;
   type:
     | 'BOOKING_CONFIRMED'
+    | 'BOOKING_CANCELLED'
+    | 'GRACE_EXTENDED'
     | 'REMINDER'
     | 'NO_SHOW'
     | 'WAITLIST_AVAILABLE'

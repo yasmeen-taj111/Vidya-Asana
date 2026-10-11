@@ -15,6 +15,8 @@ import {
   Zap,
   ArrowRight,
   Sliders,
+  CreditCard,
+  CheckCircle2,
 } from 'lucide-react';
 
 export const Discover: React.FC = () => {
@@ -22,6 +24,7 @@ export const Discover: React.FC = () => {
   const [recommendations, setRecommendations] = useState<Library[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSeatType, setSelectedSeatType] = useState<SeatType | ''>('');
+  const [pricingFilter, setPricingFilter] = useState<'ALL' | 'FREE' | 'PAID'>('ALL');
   const [freeOnly, setFreeOnly] = useState(false);
   const [selectedLibraryId, setSelectedLibraryId] = useState<string | undefined>();
   const [loading, setLoading] = useState(true);
@@ -45,17 +48,20 @@ export const Discover: React.FC = () => {
   const loadData = async () => {
     try {
       setLoading(true);
+      const isFreeParam =
+        pricingFilter === 'FREE' ? true : pricingFilter === 'PAID' ? false : (freeOnly ? true : undefined);
       const [allData, recData] = await Promise.all([
         librariesApi.getLibraries({
           q: searchQuery || undefined,
           seatType: selectedSeatType || undefined,
-          isFree: freeOnly ? true : undefined,
+          isFree: isFreeParam,
           lat: userLocation[0],
           lng: userLocation[1],
         }),
         librariesApi.getRecommendations({
           lat: userLocation[0],
           lng: userLocation[1],
+          isFree: isFreeParam,
         }),
       ]);
       setLibraries(allData.libraries);
@@ -69,7 +75,7 @@ export const Discover: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, [searchQuery, selectedSeatType, freeOnly, userLocation]);
+  }, [searchQuery, selectedSeatType, pricingFilter, freeOnly, userLocation]);
 
   return (
     <div className="space-y-6">
@@ -100,13 +106,24 @@ export const Discover: React.FC = () => {
                 className="bg-white p-5 rounded-3xl border border-primary/20 shadow-md hover:shadow-lg transition-all flex flex-col justify-between space-y-4 group"
               >
                 <div className="space-y-2">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-extrabold text-slate-900 group-hover:text-primary transition-colors">
                       {rec.name}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[11px] font-bold">
-                      {rec.matchScore}% Match
-                    </span>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {rec.isFree ? (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          Free
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200">
+                          Paid
+                        </span>
+                      )}
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-bold">
+                        {rec.matchScore}% Match
+                      </span>
+                    </div>
                   </div>
 
                   <p className="text-xs text-slate-500 line-clamp-2">{rec.description}</p>
@@ -116,6 +133,10 @@ export const Discover: React.FC = () => {
                     <span>{rec.distanceKm ? `${rec.distanceKm} km away` : rec.city}</span>
                     <span>•</span>
                     <span className="font-semibold text-slate-700">{rec.totalSeats} Desks</span>
+                    <span>•</span>
+                    <span className={rec.isFree ? 'font-bold text-emerald-600' : 'font-bold text-blue-600'}>
+                      {rec.isFree ? 'Free Admission' : 'Paid Passes'}
+                    </span>
                   </div>
                 </div>
 
@@ -149,7 +170,7 @@ export const Discover: React.FC = () => {
           <select
             value={selectedSeatType}
             onChange={(e) => setSelectedSeatType(e.target.value as SeatType | '')}
-            className="p-2 rounded-xl border border-slate-200 outline-none"
+            className="p-2 rounded-xl border border-slate-200 outline-none text-xs"
           >
             <option value="">All Seat Types</option>
             <option value="INDIVIDUAL">INDIVIDUAL</option>
@@ -158,15 +179,53 @@ export const Discover: React.FC = () => {
             <option value="ACCESSIBLE">ACCESSIBLE</option>
           </select>
 
-          <label className="flex items-center gap-2 cursor-pointer font-medium text-slate-700">
-            <input
-              type="checkbox"
-              checked={freeOnly}
-              onChange={(e) => setFreeOnly(e.target.checked)}
-              className="rounded text-primary"
-            />
-            <span>Free Admission Only</span>
-          </label>
+          {/* Admission Type Filter */}
+          <div className="flex items-center p-0.5 rounded-xl bg-slate-100 border border-slate-200 text-xs">
+            <button
+              type="button"
+              onClick={() => {
+                setPricingFilter('ALL');
+                setFreeOnly(false);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all ${
+                pricingFilter === 'ALL'
+                  ? 'bg-white text-slate-900 shadow-xs'
+                  : 'text-slate-500 hover:text-slate-800'
+              }`}
+            >
+              All Admissions
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPricingFilter('FREE');
+                setFreeOnly(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                pricingFilter === 'FREE'
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-slate-500 hover:text-emerald-700'
+              }`}
+            >
+              <span className="w-2 h-2 rounded-full bg-emerald-400" />
+              Free Admission
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPricingFilter('PAID');
+                setFreeOnly(false);
+              }}
+              className={`px-3 py-1.5 rounded-lg font-bold transition-all flex items-center gap-1.5 ${
+                pricingFilter === 'PAID'
+                  ? 'bg-primary text-white shadow-xs'
+                  : 'text-slate-500 hover:text-primary'
+              }`}
+            >
+              <CreditCard className="w-3.5 h-3.5" />
+              Paid Passes
+            </button>
+          </div>
         </div>
       </div>
 
@@ -199,21 +258,25 @@ export const Discover: React.FC = () => {
                     : 'bg-white border-slate-200/80 hover:border-slate-300 shadow-sm'
                 }`}
               >
-                <div className="flex items-start justify-between">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <h4 className="font-bold text-slate-900 text-sm">{lib.name}</h4>
                     <p className="text-[11px] text-slate-500 mt-0.5">{lib.address}</p>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      lib.isFree ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
-                    }`}
-                  >
-                    {lib.isFree ? 'Free' : 'Paid'}
-                  </span>
+                  {lib.isFree ? (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-emerald-100 text-emerald-800 border border-emerald-300 flex items-center gap-1.5 shadow-2xs shrink-0">
+                      <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
+                      Free Admission
+                    </span>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-blue-50 text-blue-700 border border-blue-200 flex items-center gap-1.5 shadow-2xs shrink-0">
+                      <CreditCard className="w-3.5 h-3.5 text-blue-600" />
+                      Paid Passes
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-100">
+                <div className="flex items-center gap-3 text-[11px] text-slate-500 mt-3 pt-2 border-t border-slate-100 flex-wrap">
                   <span className="font-semibold text-primary">
                     {lib.distanceKm ? `${lib.distanceKm} km away` : lib.city}
                   </span>
@@ -221,6 +284,10 @@ export const Discover: React.FC = () => {
                   <span>{lib.totalSeats} Desks</span>
                   <span>•</span>
                   <span>{lib.floorCount} Floor(s)</span>
+                  <span>•</span>
+                  <span className={`font-bold ${lib.isFree ? 'text-emerald-700' : 'text-blue-700'}`}>
+                    {lib.isFree ? '100% Free Admission' : 'Paid Slot Passes'}
+                  </span>
                 </div>
 
                 <Link

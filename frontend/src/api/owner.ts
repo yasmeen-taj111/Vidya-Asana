@@ -11,7 +11,7 @@ export interface OwnerStats {
 }
 
 export const ownerApi = {
-  async getLibraries(params?: { status?: string; page?: number; pageSize?: number; q?: string }): Promise<{ libraries: Library[]; meta?: ApiResponse<unknown>['meta'] }> {
+  async getLibraries(params?: { status?: string; isFree?: boolean; page?: number; pageSize?: number; q?: string }): Promise<{ libraries: Library[]; meta?: ApiResponse<unknown>['meta'] }> {
     const res = await apiClient.get<ApiResponse<Library[]>>('/owner/libraries', { params });
     const responseData = res as unknown as ApiResponse<Library[]>;
     return {

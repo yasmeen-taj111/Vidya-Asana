@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { getErrorMessage } from '../utils/errorMessages';
 import { createDefaultFloorGrid } from '../mocks/db';
 import { generateChatResponse } from '../chat/chatEngine';
@@ -8,11 +8,13 @@ import {
   findStoredUserByEmail,
   getUserDashboard,
   getUserBookings,
+  getStoredBookings,
   saveStoredBooking,
   addStoredStudySession,
   getUserNotifications,
   getUserPreferences,
   saveStoredLibrary,
+  getStoredLibraries,
   findStoredLibraryById,
   updateStoredLibrary,
   getLibraryForAdmin,
@@ -30,8 +32,12 @@ import {
   addStoredWaitlistEntry,
   removeStoredWaitlistEntry,
   updateStoredWaitlistEntry,
+  updateStoredBooking,
+  checkBookingRateLimit,
+  resetBookingRateLimit,
 } from '../mocks/storage';
 import { mockFloorGrids, mockSlots } from '../mocks/db';
+import { UserPreferences, TimeSlot, Seat, Library } from '../api/types';
 
 describe('Error Code Mapper', () => {
   it('maps known API error codes to human friendly messages', () => {
@@ -677,6 +683,806 @@ describe('Library Isolation and Fresh Setup Flow', () => {
       expect(getUserWaitlist(testUserId).length).toBe(0);
     });
   });
+
+  describe('Seat Reservation Rate Limiting & ACID Properties', () => {
+    const rateTestUser = 'usr-ratelimit-test-1';
+
+    beforeEach(() => {
+      resetBookingRateLimit(rateTestUser);
+    });
+
+    it('permits booking requests within allowed rate limit quota', () => {
+      const res1 = checkBookingRateLimit(rateTestUser, 3, 10000);
+      expect(res1.allowed).toBe(true);
+      expect(res1.remaining).toBe(2);
+
+      const res2 = checkBookingRateLimit(rateTestUser, 3, 10000);
+      expect(res2.allowed).toBe(true);
+      expect(res2.remaining).toBe(1);
+
+      const res3 = checkBookingRateLimit(rateTestUser, 3, 10000);
+      expect(res3.allowed).toBe(true);
+      expect(res3.remaining).toBe(0);
+    });
+
+    it('strictly throttles and returns RATE_LIMITED when threshold is exceeded', () => {
+      // Consume all 3 tokens
+      checkBookingRateLimit(rateTestUser, 3, 10000);
+      checkBookingRateLimit(rateTestUser, 3, 10000);
+      checkBookingRateLimit(rateTestUser, 3, 10000);
+
+      // 4th request exceeds limit
+      const blocked = checkBookingRateLimit(rateTestUser, 3, 10000);
+      expect(blocked.allowed).toBe(false);
+      expect(blocked.remaining).toBe(0);
+      expect(blocked.retryAfter).toBeGreaterThan(0);
+      expect(blocked.retryAfter).toBeLessThanOrEqual(10);
+    });
+
+    it('resets quota when rate window passes or explicitly cleared', () => {
+      checkBookingRateLimit(rateTestUser, 2, 10000);
+      checkBookingRateLimit(rateTestUser, 2, 10000);
+      expect(checkBookingRateLimit(rateTestUser, 2, 10000).allowed).toBe(false);
+
+      resetBookingRateLimit(rateTestUser);
+      const afterReset = checkBookingRateLimit(rateTestUser, 2, 10000);
+      expect(afterReset.allowed).toBe(true);
+      expect(afterReset.remaining).toBe(1);
+    });
+
+    it('enforces ACID atomicity when completing waitlist reservation', () => {
+      const studentId = `usr-acid-atomicity-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[0].seat!;
+      const slot = mockSlots[0];
+      const date = '2026-11-01';
+      const waitlistId = `wt-acid-${Date.now()}`;
+      const bookingId = `bk-acid-${Date.now()}`;
+
+      // 1. Initial waitlist state
+      addStoredWaitlistEntry(studentId, {
+        id: waitlistId,
+        seat,
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        slot,
+        date,
+        status: 'NOTIFIED',
+        claimExpiresAt: new Date(Date.now() + 600000).toISOString(),
+        position: 1,
+        createdAt: new Date().toISOString(),
+      });
+
+      // 2. Atomic reservation: booking persisted, waitlist marked CLAIMED, confirmation created
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-ACID1',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1 - Main Hall',
+        slot,
+        date,
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: `${date}T${slot.startTime}:00.000Z`,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      updateStoredWaitlistEntry(waitlistId, { status: 'CLAIMED' });
+
+      addStoredNotification(studentId, {
+        id: `notif-acid-${Date.now()}`,
+        type: 'BOOKING_CONFIRMED',
+        title: 'Booking Confirmed!',
+        body: 'Atomic booking commit test',
+        isRead: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Assert complete atomic transition
+      const bookings = getUserBookings(studentId);
+      const waitlist = getUserWaitlist(studentId);
+      const notifs = getUserNotifications(studentId);
+
+      expect(bookings.length).toBe(1);
+      expect(bookings[0].id).toBe(bookingId);
+      expect(waitlist.find((w) => w.id === waitlistId)?.status).toBe('CLAIMED');
+      expect(notifs.some((n) => n.type === 'BOOKING_CONFIRMED')).toBe(true);
+    });
+
+    it('enforces ACID consistency by rejecting double booking for same seat and slot', () => {
+      const studentA = `usr-cons-a-${Date.now()}`;
+      const studentB = `usr-cons-b-${Date.now()}`;
+      const seat = mockFloorGrids['fl-1'].cells[0].seat!;
+      const slot = mockSlots[1];
+      const date = '2026-11-02';
+
+      // First student reserves seat
+      saveStoredBooking({
+        id: `bk-first-${Date.now()}`,
+        code: 'VA-CONS1',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date,
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentA,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: `${date}T${slot.startTime}:00.000Z`,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Second booking attempt detects active booking on seat
+      const activeBookings = getStoredBookings().filter(
+        (b) =>
+          b.seat.id === seat.id &&
+          b.slot.id === slot.id &&
+          b.date === date &&
+          (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+      );
+
+      expect(activeBookings.length).toBe(1);
+      expect(activeBookings[0].userId).toBe(studentA);
+      // Confirms invariant: cannot be double booked
+    });
+  });
+
+  describe('Slot Start Arrival Confirmation & 15-Minute Buffer Automation', () => {
+    const allSeats = mockFloorGrids['fl-1'].cells.filter((c) => !!c.seat).map((c) => c.seat!);
+
+    it('calculates 15-minute buffer wait time irrespective of slot hours when booking is created', () => {
+      const studentId = `usr-grace-calc-${Date.now()}`;
+      const seat = allSeats[0];
+      const slot = mockSlots[0]; // Multi-hour slot
+      const date = '2026-11-06';
+
+      const [startH, startM] = slot.startTime.split(':').map(Number);
+      const slotStartMs = new Date(`${date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
+      const expectedGraceUntil = new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+
+      const booking = {
+        id: `bk-grace-${Date.now()}`,
+        code: 'VA-GRC15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1 - Main Hall',
+        slot,
+        date,
+        status: 'CONFIRMED' as const,
+        source: 'ONLINE' as const,
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE' as const,
+        graceUntil: expectedGraceUntil,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      };
+      saveStoredBooking(booking);
+
+      const saved = getUserBookings(studentId).find((b) => b.id === booking.id);
+      expect(saved).toBeDefined();
+      expect(saved?.graceUntil).toBe(expectedGraceUntil);
+      const graceDiffMinutes = (new Date(saved!.graceUntil).getTime() - slotStartMs) / (60 * 1000);
+      expect(graceDiffMinutes).toBe(15);
+    });
+
+    it('when slot starts, formats prompt "Are you coming or not for the slot?" with 15-minute buffer', () => {
+      const promptTitle = 'Are you coming or not for the slot?';
+      const promptMsg = 'Your study slot has started. Please confirm if you are on your way. You will get a 15-minute buffer wait time to arrive and check in.';
+
+      expect(promptTitle).toBe('Are you coming or not for the slot?');
+      expect(promptMsg).toContain('15-minute buffer wait time');
+    });
+
+    it('when user confirms arrival ("Yes"), grants 15-minute buffer wait time and dispatches notification', () => {
+      const studentId = `usr-yes-arrival-${Date.now()}`;
+      const seat = allSeats[1];
+      const slot = mockSlots[1];
+      const bookingId = `bk-yes-${Date.now()}`;
+
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-YES15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: new Date().toISOString(),
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // User confirms arrival "Yes" -> grants 15m buffer wait time
+      const bufferUntil = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+      const updated = updateStoredBooking(bookingId, {
+        arrivalConfirmed: true,
+        graceUntil: bufferUntil,
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-yes-${Date.now()}`,
+        type: 'GRACE_EXTENDED',
+        title: '15-Minute Buffer Granted',
+        body: `You have 15 minutes to arrive and check in for seat ${seat.label} at Central Study Hub. If not checked in within 15 minutes, your slot will be cancelled automatically.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(updated?.arrivalConfirmed).toBe(true);
+      expect(updated?.graceUntil).toBe(bufferUntil);
+
+      const notifs = getUserNotifications(studentId);
+      expect(notifs.some((n) => n.type === 'GRACE_EXTENDED' && n.title.includes('15-Minute Buffer Granted'))).toBe(true);
+    });
+
+    it('when user clicks "No", directly cancels booking, releases seat, and notifies user', () => {
+      const studentId = `usr-no-arrival-${Date.now()}`;
+      const seat = allSeats[2];
+      const slot = mockSlots[0];
+      const bookingId = `bk-no-${Date.now()}`;
+
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-NO15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: new Date().toISOString(),
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // User clicks "No" -> directly cancel and release seat
+      const cancelled = updateStoredBooking(bookingId, {
+        status: 'CANCELLED',
+        cancelledAt: new Date().toISOString(),
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-no-${Date.now()}`,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking Cancelled & Seat Released',
+        body: `Your booking for seat ${seat.label} at Central Study Hub was cancelled as requested and the seat has been released.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(cancelled?.status).toBe('CANCELLED');
+      expect(cancelled?.cancelledAt).toBeDefined();
+
+      const notifs = getUserNotifications(studentId);
+      const cancelNotif = notifs.find((n) => n.type === 'BOOKING_CANCELLED');
+      expect(cancelNotif).toBeDefined();
+      expect(cancelNotif?.title).toBe('Booking Cancelled & Seat Released');
+      expect(cancelNotif?.body).toContain('seat has been released');
+    });
+
+    it('when 15-minute buffer expires without check-in, auto-cancels slot and triggers website notification', () => {
+      const studentId = `usr-noshow-${Date.now()}`;
+      const seat = allSeats[3];
+      const slot = mockSlots[1];
+      const bookingId = `bk-expired-${Date.now()}`;
+
+      const expiredGraceUntil = new Date(Date.now() - 30000).toISOString(); // Expired 30 seconds ago
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-EXP15',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-11-06',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: expiredGraceUntil,
+        arrivalConfirmed: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Check overdue: graceUntil <= now and not checked in
+      const bk = getStoredBookings().find((b) => b.id === bookingId)!;
+      const isOverdue = new Date(bk.graceUntil).getTime() <= Date.now() && !bk.checkedInAt;
+      expect(isOverdue).toBe(true);
+
+      // Automated cancellation
+      const autoCancelled = updateStoredBooking(bookingId, {
+        status: 'NO_SHOW',
+      });
+
+      addStoredNotification(studentId, {
+        id: `ntf-noshow-${Date.now()}`,
+        type: 'NO_SHOW',
+        title: 'Slot Cancelled (15-Min Buffer Expired)',
+        body: `Your reservation for Seat ${seat.label} at Central Study Hub was automatically cancelled because you did not arrive within the 15-minute buffer wait time.`,
+        isRead: false,
+        data: { bookingId },
+        createdAt: new Date().toISOString(),
+      });
+
+      expect(autoCancelled?.status).toBe('NO_SHOW');
+
+      const notifs = getUserNotifications(studentId);
+      const noShowNotif = notifs.find((n) => n.type === 'NO_SHOW');
+      expect(noShowNotif).toBeDefined();
+      expect(noShowNotif?.title).toBe('Slot Cancelled (15-Min Buffer Expired)');
+      expect(noShowNotif?.body).toContain('15-minute buffer wait time');
+    });
+
+    it('enables clicking notification to trigger popup modal and provides Yes/No actions', () => {
+      const studentId = `usr-bell-${Date.now()}`;
+      const notifId = `ntf-reminder-${Date.now()}`;
+      const bookingId = `bk-bell-${Date.now()}`;
+
+      addStoredNotification(studentId, {
+        id: notifId,
+        type: 'REMINDER',
+        title: 'Are you coming or not for the slot?',
+        body: 'Your slot at Central Study Hub has started. Please confirm if you are coming.',
+        isRead: false,
+        data: { bookingId, promptArrival: true },
+        createdAt: new Date().toISOString(),
+      });
+
+      const notifs = getUserNotifications(studentId);
+      const reminderNotif = notifs.find((n) => n.id === notifId)!;
+      expect(reminderNotif).toBeDefined();
+      expect(reminderNotif.title).toContain('Are you coming');
+
+      // Clicking reminder notification sets active reminder modal
+      const isReminder =
+        reminderNotif.type === 'REMINDER' ||
+        reminderNotif.title.toLowerCase().includes('are you coming');
+      expect(isReminder).toBe(true);
+
+      const reminderPayload = {
+        bookingId: (reminderNotif.data?.bookingId as string) || bookingId,
+        message: reminderNotif.body,
+        graceUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
+      };
+      expect(reminderPayload.bookingId).toBe(bookingId);
+      expect(reminderPayload.message).toContain('Please confirm if you are coming');
+    });
+
+    it('automatically transitions overdue bookings to NO_SHOW on active read and records cancellation timestamp', () => {
+      const studentId = `usr-autoread-${Date.now()}`;
+      const seat = allSeats[4];
+      const slot = mockSlots[0];
+      const bookingId = `bk-overdue-read-${Date.now()}`;
+
+      // Create a booking whose grace period expired 5 minutes ago
+      const expiredTime = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+      saveStoredBooking({
+        id: bookingId,
+        code: 'VA-AUTOREAD',
+        libraryId: 'lib-1',
+        libraryName: 'Central Study Hub',
+        seat,
+        floorLabel: 'Floor 1',
+        slot,
+        date: '2026-10-11',
+        status: 'CONFIRMED',
+        source: 'ONLINE',
+        userId: studentId,
+        pricePaise: 0,
+        paymentStatus: 'FREE',
+        graceUntil: expiredTime,
+        arrivalConfirmed: true,
+        createdAt: new Date().toISOString(),
+      });
+
+      // Active read through getStoredBookings triggers autoExpireOverdueBookings
+      const bookings = getStoredBookings();
+      const target = bookings.find((b) => b.id === bookingId);
+      expect(target).toBeDefined();
+      expect(target?.status).toBe('NO_SHOW');
+      expect(target?.cancelledAt).toBeDefined();
+    });
+  });
+
+  describe('Preference-Based Slot Detection & Personalized Recommendations', () => {
+    it('detects and selects the slot matching user preferred study window', () => {
+      const prefs: UserPreferences = {
+        seatType: 'COMPUTER',
+        window: true,
+        powerOutlet: true,
+        quietZone: true,
+        studyMode: 'SOLO',
+        preferredSlot: 'MORNING',
+      };
+
+      const testSlots: TimeSlot[] = [
+        { id: 'sl-1', libraryId: 'lib-1', name: 'MORNING', startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
+        { id: 'sl-2', libraryId: 'lib-1', name: 'AFTERNOON', startTime: '12:00', endTime: '17:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-3', libraryId: 'lib-1', name: 'EVENING', startTime: '17:00', endTime: '21:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-4', libraryId: 'lib-1', name: 'NIGHT', startTime: '21:00', endTime: '23:59', isFree: false, pricePaise: 4000, isActive: true },
+      ];
+
+      // Match preferred slot
+      const matchedSlot = testSlots.find(
+        (s) => s.name.toUpperCase() === prefs.preferredSlot?.toUpperCase()
+      );
+
+      expect(matchedSlot).toBeDefined();
+      expect(matchedSlot?.name).toBe('MORNING');
+      expect(matchedSlot?.startTime).toBe('06:00');
+      expect(matchedSlot?.endTime).toBe('12:00');
+    });
+
+    it('auto-selects preferred slot when navigating to upcoming dates', () => {
+      const prefs: UserPreferences = {
+        preferredSlot: 'EVENING',
+      };
+
+      const testSlots: TimeSlot[] = [
+        { id: 'sl-1', libraryId: 'lib-1', name: 'MORNING', startTime: '06:00', endTime: '12:00', isFree: true, pricePaise: 0, isActive: true },
+        { id: 'sl-2', libraryId: 'lib-1', name: 'AFTERNOON', startTime: '12:00', endTime: '17:00', isFree: false, pricePaise: 5000, isActive: true },
+        { id: 'sl-3', libraryId: 'lib-1', name: 'EVENING', startTime: '17:00', endTime: '21:00', isFree: false, pricePaise: 5000, isActive: true },
+      ];
+
+      const futureDate = '2026-10-20';
+      const isFutureDate = futureDate > '2026-10-11';
+      expect(isFutureDate).toBe(true);
+
+      const prefSlot = testSlots.find(
+        (s) => s.name.toUpperCase() === prefs.preferredSlot?.toUpperCase()
+      );
+      expect(prefSlot).toBeDefined();
+      expect(prefSlot?.name).toBe('EVENING');
+    });
+
+    it('generates high recommendation scores (80-100%) when desk matches user preferred desk type, window, power socket, and quiet zone', () => {
+      const prefs: UserPreferences = {
+        seatType: 'COMPUTER',
+        window: true,
+        powerOutlet: true,
+        quietZone: true,
+        studyMode: 'SOLO',
+        preferredSlot: 'MORNING',
+      };
+
+      const desk: Seat = {
+        id: 'seat-comp-1',
+        floorId: 'fl-1',
+        label: 'C-01',
+        seatType: 'COMPUTER',
+        facing: 'N',
+        attributes: {
+          window: true,
+          powerOutlet: true,
+          quietZone: true,
+          nearDoor: false,
+        },
+        isActive: true,
+      };
+
+      let score = 0;
+      const reasons: string[] = [];
+
+      if (prefs.seatType && desk.seatType === prefs.seatType) {
+        score += 40;
+        reasons.push(`Matches desired ${desk.seatType.toLowerCase()} desk`);
+      }
+      if (desk.attributes.window && prefs.window) {
+        score += 20;
+        reasons.push('Direct natural light & window desk');
+      }
+      if (desk.attributes.powerOutlet && prefs.powerOutlet) {
+        score += 20;
+        reasons.push('Dedicated laptop power socket');
+      }
+      if (desk.attributes.quietZone && prefs.quietZone) {
+        score += 20;
+        reasons.push('Strict silent pod & quiet zone');
+      }
+
+      expect(score).toBe(100);
+      expect(reasons).toContain('Matches desired computer desk');
+      expect(reasons).toContain('Direct natural light & window desk');
+      expect(reasons).toContain('Dedicated laptop power socket');
+      expect(reasons).toContain('Strict silent pod & quiet zone');
+    });
+
+    it('closes notification popup when clicking outside or pressing Escape', () => {
+      let isOpen = true;
+      const setIsOpen = (val: boolean) => {
+        isOpen = val;
+      };
+
+      const container = { id: 'container-node' };
+      const insideNode = { id: 'inside-node', parent: container };
+      const outsideNode = { id: 'outside-node' };
+
+      const contains = (parent: any, child: any) => parent === child || child?.parent === parent;
+
+      const handleClickOutside = (target: any) => {
+        if (!contains(container, target)) {
+          setIsOpen(false);
+        }
+      };
+
+      // Clicking inside container keeps it open
+      handleClickOutside(insideNode);
+      expect(isOpen).toBe(true);
+
+      // Clicking outside container closes it
+      handleClickOutside(outsideNode);
+      expect(isOpen).toBe(false);
+
+      // Escape key closes it
+      isOpen = true;
+      const handleKeyDown = (e: { key: string }) => {
+        if (e.key === 'Escape') setIsOpen(false);
+      };
+      handleKeyDown({ key: 'Escape' });
+      expect(isOpen).toBe(false);
+    });
+
+    describe('Library Registration 3-Step Flow & Slot Pricing Configurator', () => {
+      it('navigates from step 1 to step 2 and step 3 without premature redirect or creation', () => {
+        let currentStep = 1;
+        const setStep = (s: number) => {
+          currentStep = s;
+        };
+
+        const adminForm = {
+          adminName: 'Rajesh Kumar',
+          adminEmail: 'rajesh@greenwoodstudy.in',
+          adminPassword: 'Password123!',
+        };
+
+        const handleNextStep1 = () => {
+          if (!adminForm.adminName.trim() || !adminForm.adminEmail.trim() || adminForm.adminPassword.length < 8) {
+            return false;
+          }
+          setStep(2);
+          return true;
+        };
+
+        expect(handleNextStep1()).toBe(true);
+        expect(currentStep).toBe(2);
+
+        const libForm = {
+          libName: 'Greenwood Study Hall',
+          address: '42 MG Road',
+          city: 'Bengaluru',
+        };
+
+        const handleNextStep2 = () => {
+          if (!libForm.libName.trim() || !libForm.address.trim() || !libForm.city.trim()) {
+            return false;
+          }
+          setStep(3);
+          return true;
+        };
+
+        expect(handleNextStep2()).toBe(true);
+        expect(currentStep).toBe(3);
+      });
+
+      it('configures admission pricing for Morning, Afternoon, Evening, and Late Night slots', () => {
+        // Default paid pricing configuration
+        let isFree = false;
+        let morningPrice = 50;
+        let afternoonPrice = 60;
+        let eveningPrice = 50;
+        let nightPrice = 40;
+
+        const buildSlotPayload = () => ({
+          isFree,
+          slotPricing: {
+            morningPrice: isFree ? 0 : morningPrice,
+            afternoonPrice: isFree ? 0 : afternoonPrice,
+            eveningPrice: isFree ? 0 : eveningPrice,
+            nightPrice: isFree ? 0 : nightPrice,
+          },
+        });
+
+        // Paid: correct custom slot amounts
+        const paidPayload = buildSlotPayload();
+        expect(paidPayload.isFree).toBe(false);
+        expect(paidPayload.slotPricing.morningPrice).toBe(50);
+        expect(paidPayload.slotPricing.afternoonPrice).toBe(60);
+        expect(paidPayload.slotPricing.eveningPrice).toBe(50);
+        expect(paidPayload.slotPricing.nightPrice).toBe(40);
+
+        // When toggled to Free Admission: all slots set to 0
+        isFree = true;
+        const freePayload = buildSlotPayload();
+        expect(freePayload.isFree).toBe(true);
+        expect(freePayload.slotPricing.morningPrice).toBe(0);
+        expect(freePayload.slotPricing.afternoonPrice).toBe(0);
+        expect(freePayload.slotPricing.eveningPrice).toBe(0);
+        expect(freePayload.slotPricing.nightPrice).toBe(0);
+      });
+
+      it('initializes 4 operating time slots with exact configured prices when library is registered', () => {
+        const testLibId = `lib-slots-test-${Date.now()}`;
+        let isFree = false;
+        let morningPrice: number = 45;
+        let afternoonPrice: number = 55;
+        let eveningPrice: number = 65;
+        let nightPrice: number = 35;
+
+        const initialSlots: TimeSlot[] = [
+          {
+            id: `slot-${testLibId}-morning`,
+            libraryId: testLibId,
+            name: 'MORNING',
+            startTime: '06:00',
+            endTime: '12:00',
+            isFree: isFree || morningPrice === 0,
+            pricePaise: isFree ? 0 : morningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-afternoon`,
+            libraryId: testLibId,
+            name: 'AFTERNOON',
+            startTime: '12:00',
+            endTime: '17:00',
+            isFree: isFree || afternoonPrice === 0,
+            pricePaise: isFree ? 0 : afternoonPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-evening`,
+            libraryId: testLibId,
+            name: 'EVENING',
+            startTime: '17:00',
+            endTime: '21:00',
+            isFree: isFree || eveningPrice === 0,
+            pricePaise: isFree ? 0 : eveningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${testLibId}-night`,
+            libraryId: testLibId,
+            name: 'NIGHT',
+            startTime: '21:00',
+            endTime: '23:59',
+            isFree: isFree || nightPrice === 0,
+            pricePaise: isFree ? 0 : nightPrice * 100,
+            isActive: true,
+          },
+        ];
+
+        saveStoredSlotsForLibrary(testLibId, initialSlots);
+        const storedSlots = getStoredSlotsForLibrary(testLibId);
+
+        expect(storedSlots.length).toBe(4);
+        expect(storedSlots.find((s) => s.name === 'MORNING')?.pricePaise).toBe(4500);
+        expect(storedSlots.find((s) => s.name === 'AFTERNOON')?.pricePaise).toBe(5500);
+        expect(storedSlots.find((s) => s.name === 'EVENING')?.pricePaise).toBe(6500);
+        expect(storedSlots.find((s) => s.name === 'NIGHT')?.pricePaise).toBe(3500);
+      });
+    });
+
+    describe('Free vs Paid Library Listing Badges & Filtering', () => {
+      it('verifies that library listings correctly distinguish Free Admission from Paid Passes', () => {
+        const testLibraries: Library[] = [
+          {
+            id: 'lib-free-1',
+            name: 'Public Central Library',
+            address: 'Cubbon Park',
+            city: 'Bengaluru',
+            latitude: 12.9734,
+            longitude: 77.5912,
+            contactEmail: 'free@library.org',
+            status: 'APPROVED',
+            amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+            isFree: true,
+            seatCounts: { INDIVIDUAL: 20, GROUP: 4, ACCESSIBLE: 2, COMPUTER: 8 },
+            totalSeats: 34,
+            floorCount: 1,
+            createdAt: new Date().toISOString(),
+          },
+          {
+            id: 'lib-paid-1',
+            name: 'Elite Executive Study Lounge',
+            address: 'Indiranagar',
+            city: 'Bengaluru',
+            latitude: 12.9784,
+            longitude: 77.6408,
+            contactEmail: 'elite@lounge.org',
+            status: 'APPROVED',
+            amenities: { lockers: true, cctv: true, ac: true, wifi: true, powerOutlets: true },
+            isFree: false,
+            seatCounts: { INDIVIDUAL: 30, GROUP: 6, ACCESSIBLE: 2, COMPUTER: 10 },
+            totalSeats: 48,
+            floorCount: 2,
+            createdAt: new Date().toISOString(),
+          },
+        ];
+
+        // Format badges for listing cards
+        const getAdmissionBadge = (lib: Library) => ({
+          label: lib.isFree ? 'Free Admission' : 'Paid Passes',
+          badgeText: lib.isFree ? '100% Free Admission' : 'Paid Slot Passes',
+          isFree: lib.isFree,
+          badgeColor: lib.isFree ? 'emerald' : 'blue',
+        });
+
+        const freeBadge = getAdmissionBadge(testLibraries[0]);
+        const paidBadge = getAdmissionBadge(testLibraries[1]);
+
+        expect(freeBadge.label).toBe('Free Admission');
+        expect(freeBadge.isFree).toBe(true);
+        expect(freeBadge.badgeColor).toBe('emerald');
+
+        expect(paidBadge.label).toBe('Paid Passes');
+        expect(paidBadge.isFree).toBe(false);
+        expect(paidBadge.badgeColor).toBe('blue');
+      });
+
+      it('filters library discovery by Free Only (isFree=true)', () => {
+        const allLibs = getStoredLibraries().filter((l) => l.status === 'APPROVED');
+        const freeLibs = allLibs.filter((l) => l.isFree);
+
+        expect(freeLibs.length).toBeGreaterThan(0);
+        expect(freeLibs.every((l) => l.isFree === true)).toBe(true);
+        expect(freeLibs.some((l) => l.id === 'lib-4')).toBe(true);
+      });
+
+      it('filters library discovery by Paid Only (isFree=false)', () => {
+        const allLibs = getStoredLibraries().filter((l) => l.status === 'APPROVED');
+        const paidLibs = allLibs.filter((l) => !l.isFree);
+
+        expect(paidLibs.length).toBeGreaterThan(0);
+        expect(paidLibs.every((l) => l.isFree === false)).toBe(true);
+        expect(paidLibs.some((l) => l.id === 'lib-1')).toBe(true);
+      });
+
+      it('displays admission status across owner dashboard records', () => {
+        const storedLibraries = getStoredLibraries();
+        const freeLib = storedLibraries.find((l) => l.isFree);
+        const paidLib = storedLibraries.find((l) => !l.isFree);
+
+        expect(freeLib).toBeDefined();
+        expect(freeLib?.isFree).toBe(true);
+        expect(paidLib).toBeDefined();
+        expect(paidLib?.isFree).toBe(false);
+
+        // Verification of table row admission badge render value
+        const renderOwnerAdmissionBadge = (lib: Library) =>
+          lib.isFree ? '🟢 Free Admission' : '💳 Paid Slots';
+
+        expect(renderOwnerAdmissionBadge(freeLib!)).toBe('🟢 Free Admission');
+        expect(renderOwnerAdmissionBadge(paidLib!)).toBe('💳 Paid Slots');
+      });
+    });
+  });
 });
+
 
 

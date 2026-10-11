@@ -90,7 +90,7 @@ export function emitBookingReminder(
 
 export function emitBookingReleased(
   userId: string,
-  data: { bookingId: string; reason: 'NO_SHOW' | 'CANCELLED_BY_ADMIN' }
+  data: { bookingId: string; reason: string; message?: string }
 ) {
   if (!io) return;
   io.to(`user:${userId}`).emit('booking:released', data);

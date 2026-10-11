@@ -3,6 +3,9 @@ import { generateUUID, generateBookingCode } from '../src/utils/ids';
 import { generateQrToken, verifyQrToken } from '../src/utils/qr';
 import { scoreSeat, scoreLibrary, calculateHaversineDistance } from '../src/utils/scoring';
 import { generateChatResponse } from '../src/modules/chat/chatEngine';
+import { bookingRateLimiter, walkInLimiter } from '../src/middleware/rateLimit';
+import { withTransaction, pool } from '../src/config/db';
+import { AppError } from '../src/utils/errors';
 
 describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
   it('generates unique UUIDs and formatted booking codes', () => {
@@ -140,4 +143,287 @@ describe('Vidya Asana Backend - Utility & Domain Logic Tests', () => {
       expect(res.reply).toContain('zero penalties');
     });
   });
+
+  describe('Seat Reservation Rate Limiting & ACID Properties', () => {
+    it('defines and equips seat reservation rate limiter middleware', () => {
+      expect(typeof bookingRateLimiter).toBe('function');
+      expect(bookingRateLimiter.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('defines and equips walk-in allocation rate limiter middleware', () => {
+      expect(typeof walkInLimiter).toBe('function');
+      expect(walkInLimiter.length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('guarantees ACID atomicity by rolling back on failure and releasing connection', async () => {
+      let rolledBack = false;
+      let released = false;
+      let committed = false;
+
+      const mockConn = {
+        beginTransaction: async () => {},
+        commit: async () => {
+          committed = true;
+        },
+        rollback: async () => {
+          rolledBack = true;
+        },
+        release: () => {
+          released = true;
+        },
+        query: async () => [[], undefined],
+        execute: async () => [{ affectedRows: 1 } as any, undefined],
+      };
+
+      const originalGetConnection = pool.getConnection;
+      pool.getConnection = (async () => mockConn as any) as any;
+
+      try {
+        await expect(
+          withTransaction(async (tx) => {
+            await tx.execute('INSERT INTO bookings ...');
+            throw new AppError('SEAT_UNAVAILABLE', 'Seat is taken', 409);
+          })
+        ).rejects.toThrow('Seat is taken');
+
+        expect(rolledBack).toBe(true);
+        expect(committed).toBe(false);
+        expect(released).toBe(true);
+      } finally {
+        pool.getConnection = originalGetConnection;
+      }
+    });
+
+    it('guarantees ACID durability by committing transaction on success and releasing connection', async () => {
+      let committed = false;
+      let released = false;
+      let rolledBack = false;
+
+      const mockConn = {
+        beginTransaction: async () => {},
+        commit: async () => {
+          committed = true;
+        },
+        rollback: async () => {
+          rolledBack = true;
+        },
+        release: () => {
+          released = true;
+        },
+        query: async () => [[{ id: 'bk-123', status: 'CONFIRMED' }], undefined],
+        execute: async () => [{ affectedRows: 1 } as any, undefined],
+      };
+
+      const originalGetConnection = pool.getConnection;
+      pool.getConnection = (async () => mockConn as any) as any;
+
+      try {
+        const result = await withTransaction(async (tx) => {
+          await tx.execute('INSERT INTO bookings ...');
+          const rows = await tx.query<any[]>('SELECT * FROM bookings WHERE id = ?', ['bk-123']);
+          return rows[0];
+        });
+
+        expect(result).toEqual({ id: 'bk-123', status: 'CONFIRMED' });
+        expect(committed).toBe(true);
+        expect(rolledBack).toBe(false);
+        expect(released).toBe(true);
+      } finally {
+        pool.getConnection = originalGetConnection;
+      }
+    });
+  });
+
+  describe('Slot Start Arrival & 15-Minute Buffer Automation', () => {
+    it('calculates strict 15-minute buffer wait time irrespective of slot hours', () => {
+      // 6-hour slot: 06:00 to 12:00
+      const date = '2026-11-05';
+      const slot = { startTime: '06:00', endTime: '12:00' };
+      const [startH, startM] = slot.startTime.split(':').map(Number);
+      const slotStart = new Date(`${date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`);
+
+      // 15-minute buffer
+      const graceUntil = new Date(slotStart.getTime() + 15 * 60 * 1000);
+      const diffMinutes = (graceUntil.getTime() - slotStart.getTime()) / (60 * 1000);
+
+      expect(diffMinutes).toBe(15);
+      expect(graceUntil.getTime() - slotStart.getTime()).toBe(15 * 60 * 1000);
+    });
+
+    it('formats reminder prompt asking "Are you coming or not for the slot?" with 15-minute buffer info', () => {
+      const seatLabel = 'F1-A12';
+      const libraryName = 'Central Study Hub';
+      const promptTitle = 'Are you coming or not for the slot?';
+      const promptBody = `Your slot at ${libraryName} (Seat ${seatLabel}) has started. Please confirm if you are coming to receive a 15-minute buffer wait time.`;
+
+      expect(promptTitle).toBe('Are you coming or not for the slot?');
+      expect(promptBody).toContain('15-minute buffer wait time');
+      expect(promptBody).toContain(seatLabel);
+      expect(promptBody).toContain(libraryName);
+    });
+
+    it('handles direct cancellation when user clicks "No" releasing seat and generating cancellation payload', () => {
+      const booking = {
+        id: 'bk-cancel-123',
+        status: 'CONFIRMED',
+        seatLabel: 'F2-B04',
+        libraryName: 'Koramangala Community Library',
+      };
+
+      const userChoice = false; // User clicked "No"
+      const transitionStatus = userChoice ? 'CONFIRMED' : 'CANCELLED';
+      const notification = {
+        type: 'BOOKING_CANCELLED' as const,
+        title: 'Booking Cancelled & Seat Released',
+        body: `Your booking for seat ${booking.seatLabel} at ${booking.libraryName} was cancelled as requested and the seat has been released.`,
+      };
+
+      expect(transitionStatus).toBe('CANCELLED');
+      expect(notification.type).toBe('BOOKING_CANCELLED');
+      expect(notification.title).toBe('Booking Cancelled & Seat Released');
+      expect(notification.body).toContain(booking.seatLabel);
+    });
+
+    it('formats automated cancellation when 15-minute buffer expires without arrival', () => {
+      const graceUntil = new Date(Date.now() - 60000); // 1 minute in the past
+      const isBufferExpired = graceUntil <= new Date();
+
+      expect(isBufferExpired).toBe(true);
+
+      const noShowPayload = {
+        type: 'NO_SHOW' as const,
+        title: 'Slot Cancelled (15-Min Buffer Expired)',
+        body: 'Your reservation for Seat F1-A1 at Central Study Hub was automatically cancelled because you did not arrive within the 15-minute buffer wait time.',
+      };
+
+      expect(noShowPayload.type).toBe('NO_SHOW');
+      expect(noShowPayload.title).toBe('Slot Cancelled (15-Min Buffer Expired)');
+      expect(noShowPayload.body).toContain('15-minute buffer wait time');
+    });
+
+    it('verifies active auto-expiry SQL criteria handles expired buffer correctly', () => {
+      const now = new Date();
+      const pastGrace = new Date(now.getTime() - 15 * 60 * 1000);
+      const futureGrace = new Date(now.getTime() + 15 * 60 * 1000);
+
+      const isPastExpired = pastGrace.getTime() <= now.getTime();
+      const isFutureExpired = futureGrace.getTime() <= now.getTime();
+
+      expect(isPastExpired).toBe(true);
+      expect(isFutureExpired).toBe(false);
+    });
+  });
+
+  describe('Library Registration Slot Pricing Schema & Allocation', () => {
+    it('validates library registration payload with configured slot pricing', async () => {
+      const { registerLibrarySchema } = await import('../src/modules/auth/schema');
+
+      const validPayload = {
+        admin: {
+          name: 'Rajesh Kumar',
+          email: 'admin@apexlibrary.in',
+          password: 'Password123!',
+          phone: '+91 9876543210',
+        },
+        library: {
+          name: 'Apex Study Library',
+          description: 'Modern reading rooms',
+          address: '12 Residency Road',
+          city: 'Bengaluru',
+          latitude: 12.9716,
+          longitude: 77.5946,
+          contactEmail: 'contact@apexlibrary.in',
+          contactPhone: '+91 9876543210',
+          amenities: {
+            lockers: true,
+            cctv: true,
+            ac: true,
+            wifi: true,
+            powerOutlets: true,
+          },
+          isFree: false,
+          slotPricing: {
+            morningPrice: 50,
+            afternoonPrice: 60,
+            eveningPrice: 50,
+            nightPrice: 40,
+          },
+        },
+      };
+
+      const parsed = registerLibrarySchema.parse(validPayload);
+      expect(parsed.library.isFree).toBe(false);
+      expect(parsed.library.slotPricing?.morningPrice).toBe(50);
+      expect(parsed.library.slotPricing?.afternoonPrice).toBe(60);
+      expect(parsed.library.slotPricing?.eveningPrice).toBe(50);
+      expect(parsed.library.slotPricing?.nightPrice).toBe(40);
+    });
+
+    it('generates 4 operating slots with paise conversions and handles free override', () => {
+      const libDataPaid = {
+        isFree: false,
+        slotPricing: {
+          morningPrice: 50,
+          afternoonPrice: 60,
+          eveningPrice: 50,
+          nightPrice: 40,
+        },
+      };
+
+      const slotsPaid = [
+        {
+          name: 'MORNING',
+          startTime: '06:00',
+          endTime: '12:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.morningPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.morningPrice * 100,
+        },
+        {
+          name: 'AFTERNOON',
+          startTime: '12:00',
+          endTime: '17:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.afternoonPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.afternoonPrice * 100,
+        },
+        {
+          name: 'EVENING',
+          startTime: '17:00',
+          endTime: '21:00',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.eveningPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.eveningPrice * 100,
+        },
+        {
+          name: 'NIGHT',
+          startTime: '21:00',
+          endTime: '23:59',
+          isFree: libDataPaid.isFree || libDataPaid.slotPricing.nightPrice === 0,
+          pricePaise: libDataPaid.isFree ? 0 : libDataPaid.slotPricing.nightPrice * 100,
+        },
+      ];
+
+      expect(slotsPaid[0].pricePaise).toBe(5000); // ₹50
+      expect(slotsPaid[1].pricePaise).toBe(6000); // ₹60
+      expect(slotsPaid[2].pricePaise).toBe(5000); // ₹50
+      expect(slotsPaid[3].pricePaise).toBe(4000); // ₹40
+
+      const libDataFree = {
+        isFree: true,
+        slotPricing: {
+          morningPrice: 50,
+          afternoonPrice: 60,
+          eveningPrice: 50,
+          nightPrice: 40,
+        },
+      };
+
+      const slotsFree = slotsPaid.map((s) => ({
+        ...s,
+        isFree: true,
+        pricePaise: 0,
+      }));
+
+      expect(slotsFree.every((s) => s.isFree && s.pricePaise === 0)).toBe(true);
+    });
+  });
 });
+

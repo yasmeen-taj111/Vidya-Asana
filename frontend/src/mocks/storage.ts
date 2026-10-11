@@ -135,8 +135,81 @@ export function resolveCurrentUser(request?: Request): User | null {
 // -------------------------------------------------------------
 // 3. Bookings Store
 // -------------------------------------------------------------
+export function autoExpireOverdueBookings(bookings?: Booking[]): { bookings: Booking[]; expiredCount: number } {
+  const all = bookings || loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  const now = new Date();
+  const nowMs = now.getTime();
+  let updatedAny = false;
+  let expiredCount = 0;
+
+  for (const b of all) {
+    if (b.status === 'CONFIRMED' && !b.checkedInAt) {
+      let slotStartMs = 0;
+      if (b.date && b.slot?.startTime) {
+        const year = parseInt(b.date.substring(0, 4));
+        const month = parseInt(b.date.substring(5, 7)) - 1;
+        const day = parseInt(b.date.substring(8, 10));
+        const [startH, startM] = b.slot.startTime.split(':').map(Number);
+        slotStartMs = new Date(year, month, day, startH, startM, 0, 0).getTime();
+      }
+
+      const defaultBufferExpiryMs = slotStartMs > 0 ? slotStartMs + 15 * 60 * 1000 : 0;
+      let graceExpiryMs = 0;
+      if (b.graceUntil) {
+        graceExpiryMs = new Date(b.graceUntil).getTime();
+      }
+
+      let isExpired = false;
+      if (b.arrivalConfirmed) {
+        isExpired = graceExpiryMs > 0 && nowMs >= graceExpiryMs;
+      } else {
+        if (graceExpiryMs > 0 && defaultBufferExpiryMs > 0) {
+          isExpired = nowMs >= Math.max(graceExpiryMs, defaultBufferExpiryMs);
+        } else if (graceExpiryMs > 0) {
+          isExpired = nowMs >= graceExpiryMs;
+        } else if (defaultBufferExpiryMs > 0) {
+          isExpired = nowMs >= defaultBufferExpiryMs;
+        }
+      }
+
+      if (isExpired) {
+        b.status = 'NO_SHOW';
+        b.cancelledAt = now.toISOString();
+        updatedAny = true;
+        expiredCount++;
+
+        const notifTitle = 'Slot Cancelled (15-Min Buffer Expired)';
+        const existingNotifs = loadJson<StoredNotification[]>('va_mock_notifications', initialTaggedNotifications);
+        const alreadyNotified = existingNotifs.some(
+          (n) => n.userId === b.userId && n.data?.bookingId === b.id && n.type === 'NO_SHOW'
+        );
+        if (!alreadyNotified) {
+          existingNotifs.unshift({
+            id: `ntf-noshow-${b.id}-${Date.now()}`,
+            userId: b.userId || 'usr-4',
+            type: 'NO_SHOW',
+            title: notifTitle,
+            body: `Your reservation for seat ${b.seat?.label || 'your seat'} at ${b.libraryName} was automatically cancelled because the 15-minute buffer expired.`,
+            isRead: false,
+            data: { bookingId: b.id },
+            createdAt: now.toISOString(),
+          });
+          saveJson('va_mock_notifications', existingNotifs);
+        }
+      }
+    }
+  }
+
+  if (updatedAny) {
+    saveJson('va_mock_bookings', all);
+  }
+
+  return { bookings: all, expiredCount };
+}
+
 export function getStoredBookings(): Booking[] {
-  return loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  const raw = loadJson<Booking[]>('va_mock_bookings', initialMockBookings);
+  return autoExpireOverdueBookings(raw).bookings;
 }
 
 export function saveStoredBooking(booking: Booking): void {
@@ -534,7 +607,20 @@ export function getStoredLeaderboard(currentUserId: string): LeaderboardEntry[] 
 // 10. Libraries Store (Persistent & Per-Library Isolated)
 // -------------------------------------------------------------
 export function getStoredLibraries(): Library[] {
-  return loadJson<Library[]>('va_mock_libraries', initialMockLibraries);
+  const loaded = loadJson<Library[]>('va_mock_libraries', initialMockLibraries);
+  const merged = [...loaded];
+  for (const initLib of initialMockLibraries) {
+    const existing = merged.find((l) => l.id === initLib.id);
+    if (!existing) {
+      merged.push(initLib);
+    } else if (existing.isFree === undefined) {
+      existing.isFree = initLib.isFree;
+    }
+  }
+  return merged.map((lib) => ({
+    ...lib,
+    isFree: typeof lib.isFree === 'boolean' ? lib.isFree : (lib.id === 'lib-2' || lib.id === 'lib-4'),
+  }));
 }
 
 export function saveStoredLibrary(library: Library): void {
@@ -585,8 +671,17 @@ export function getLibraryForAdmin(user?: User | null): Library {
 // 11. Floors Store (Per-Library Isolated)
 // -------------------------------------------------------------
 export function getStoredFloorsForLibrary(libraryId: string): Record<string, FloorGrid> {
-  if (libraryId === 'lib-1') {
-    return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, mockFloorGrids);
+  if (libraryId === 'lib-1' || libraryId === 'lib-4') {
+    const defaultFloors: Record<string, FloorGrid> = {};
+    Object.entries(mockFloorGrids).forEach(([k, v]) => {
+      if (
+        (libraryId === 'lib-1' && (k === 'fl-1' || k === 'fl-2')) ||
+        (libraryId === 'lib-4' && (k === 'fl-lib-4-1' || k === 'fl-lib-4-2'))
+      ) {
+        defaultFloors[k] = v;
+      }
+    });
+    return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, defaultFloors);
   }
   return loadJson<Record<string, FloorGrid>>(`va_mock_floors_${libraryId}`, {});
 }
@@ -606,7 +701,16 @@ export function saveStoredFloorForLibrary(libraryId: string, floorGrid: FloorGri
 // -------------------------------------------------------------
 export function getStoredSlotsForLibrary(libraryId: string): TimeSlot[] {
   if (libraryId === 'lib-1') {
-    return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, initialMockSlots);
+    return loadJson<TimeSlot[]>(
+      `va_mock_slots_${libraryId}`,
+      initialMockSlots.filter((s) => s.libraryId === 'lib-1')
+    );
+  }
+  if (libraryId === 'lib-4') {
+    return loadJson<TimeSlot[]>(
+      `va_mock_slots_${libraryId}`,
+      initialMockSlots.filter((s) => s.libraryId === 'lib-4')
+    );
   }
   return loadJson<TimeSlot[]>(`va_mock_slots_${libraryId}`, []);
 }
@@ -692,4 +796,44 @@ export function getStoredAnalyticsForLibrary(libraryId: string) {
     walkIns,
     revenuePaise,
   };
+}
+
+// -------------------------------------------------------------
+// 14. Seat Reservation Rate Limiter & ACID Invariant Controller
+// -------------------------------------------------------------
+const bookingAttemptsMap = new Map<string, number[]>();
+
+export interface RateLimitResult {
+  allowed: boolean;
+  remaining: number;
+  retryAfter?: number;
+}
+
+export function checkBookingRateLimit(
+  userId: string,
+  limit = 10,
+  windowMs = 60000
+): RateLimitResult {
+  const now = Date.now();
+  const history = bookingAttemptsMap.get(userId) || [];
+  const recent = history.filter((t) => now - t < windowMs);
+
+  if (recent.length >= limit) {
+    const oldest = recent[0];
+    const retryAfter = Math.max(1, Math.ceil((windowMs - (now - oldest)) / 1000));
+    bookingAttemptsMap.set(userId, recent);
+    return { allowed: false, remaining: 0, retryAfter };
+  }
+
+  recent.push(now);
+  bookingAttemptsMap.set(userId, recent);
+  return { allowed: true, remaining: limit - recent.length };
+}
+
+export function resetBookingRateLimit(userId?: string): void {
+  if (userId) {
+    bookingAttemptsMap.delete(userId);
+  } else {
+    bookingAttemptsMap.clear();
+  }
 }

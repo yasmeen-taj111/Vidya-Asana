@@ -148,6 +148,37 @@ export const mockLibraries: Library[] = [
     matchScore: 89,
     createdAt: '2026-01-10T00:00:00.000Z',
   },
+  {
+    id: 'lib-4',
+    name: 'State Central Library (Cubbon Park)',
+    description: 'Premier public state reading sanctuary offering free community admission, serene natural lighting, and extensive competitive exam archives.',
+    address: 'Cubbon Park, Kasturba Road',
+    city: 'Bengaluru',
+    latitude: 12.9734,
+    longitude: 77.5912,
+    contactEmail: 'contact@statelibrary.org',
+    contactPhone: '+91 80 2221 2132',
+    status: 'APPROVED',
+    amenities: {
+      lockers: true,
+      cctv: true,
+      ac: true,
+      wifi: true,
+      powerOutlets: true,
+    },
+    isFree: true,
+    seatCounts: {
+      INDIVIDUAL: 26,
+      GROUP: 4,
+      ACCESSIBLE: 2,
+      COMPUTER: 8,
+    },
+    totalSeats: 40,
+    floorCount: 2,
+    distanceKm: 1.8,
+    matchScore: 94,
+    createdAt: '2026-01-12T00:00:00.000Z',
+  },
 ];
 
 export const mockSlots: TimeSlot[] = [
@@ -189,6 +220,46 @@ export const mockSlots: TimeSlot[] = [
     endTime: '23:59',
     isFree: false,
     pricePaise: 4000, // ₹40
+    isActive: true,
+  },
+  {
+    id: 'slot-lib-4-morning',
+    libraryId: 'lib-4',
+    name: 'MORNING',
+    startTime: '06:00',
+    endTime: '12:00',
+    isFree: true,
+    pricePaise: 0,
+    isActive: true,
+  },
+  {
+    id: 'slot-lib-4-afternoon',
+    libraryId: 'lib-4',
+    name: 'AFTERNOON',
+    startTime: '12:00',
+    endTime: '17:00',
+    isFree: true,
+    pricePaise: 0,
+    isActive: true,
+  },
+  {
+    id: 'slot-lib-4-evening',
+    libraryId: 'lib-4',
+    name: 'EVENING',
+    startTime: '17:00',
+    endTime: '21:00',
+    isFree: true,
+    pricePaise: 0,
+    isActive: true,
+  },
+  {
+    id: 'slot-lib-4-night',
+    libraryId: 'lib-4',
+    name: 'NIGHT',
+    startTime: '21:00',
+    endTime: '23:59',
+    isFree: true,
+    pricePaise: 0,
     isActive: true,
   },
 ];
@@ -266,9 +337,17 @@ export function createDefaultFloorGrid(floorId: string, floorNumber: number, lab
 export const mockFloorGrids: Record<string, FloorGrid> = {
   'fl-1': createDefaultFloorGrid('fl-1', 1, 'Floor 1 - Main Hall'),
   'fl-2': createDefaultFloorGrid('fl-2', 2, 'Floor 2 - Silent Research Zone'),
+  'fl-lib-4-1': createDefaultFloorGrid('fl-lib-4-1', 1, 'Heritage Reading Hall'),
+  'fl-lib-4-2': createDefaultFloorGrid('fl-lib-4-2', 2, 'Upper Reference Gallery'),
 };
 
 const todayStr = new Date().toLocaleDateString('en-CA');
+
+const defaultGraceDate = (() => {
+  const d = new Date();
+  d.setHours(6, 15, 0, 0);
+  return d.toISOString();
+})();
 
 export const mockBookings: Booking[] = [
   {
@@ -285,7 +364,7 @@ export const mockBookings: Booking[] = [
     userId: 'usr-4',
     pricePaise: 5000,
     paymentStatus: 'PAID',
-    graceUntil: `${todayStr}T06:30:00.000Z`,
+    graceUntil: defaultGraceDate,
     arrivalConfirmed: false,
     createdAt: new Date(Date.now() - 3600000).toISOString(),
   },
@@ -303,7 +382,7 @@ export const mockBookings: Booking[] = [
     userId: 'usr-5',
     pricePaise: 5000,
     paymentStatus: 'PAID',
-    graceUntil: `${todayStr}T06:30:00.000Z`,
+    graceUntil: defaultGraceDate,
     arrivalConfirmed: true,
     checkedInAt: `${todayStr}T06:12:00.000Z`,
     createdAt: new Date(Date.now() - 7200000).toISOString(),

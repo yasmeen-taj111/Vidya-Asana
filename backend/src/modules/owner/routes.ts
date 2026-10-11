@@ -50,7 +50,7 @@ export function mapLibraryRow(r: any) {
 // GET /owner/libraries
 ownerRouter.get('/libraries', async (req, res, next) => {
   try {
-    const { status, q, page = 1, pageSize = 20 } = req.query;
+    const { status, isFree, q, page = 1, pageSize = 20 } = req.query;
     let sql = `
       SELECT l.*,
         (SELECT COUNT(*) FROM floors f WHERE f.library_id = l.id) as floor_count,
@@ -66,6 +66,11 @@ ownerRouter.get('/libraries', async (req, res, next) => {
     if (status) {
       sql += ' AND l.status = ?';
       params.push(status);
+    }
+    if (isFree === 'true') {
+      sql += ' AND l.is_free = 1';
+    } else if (isFree === 'false') {
+      sql += ' AND l.is_free = 0';
     }
     if (q) {
       sql += ' AND (l.name LIKE ? OR l.city LIKE ?)';

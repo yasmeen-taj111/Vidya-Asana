@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import { authenticate } from '../../middleware/auth';
-import { query, execute } from '../../config/db';
+import { query, execute, withTransaction } from '../../config/db';
+import { bookingRateLimiter } from '../../middleware/rateLimit';
+import { AppError } from '../../utils/errors';
 import { sendSuccess, sendError } from '../../utils/response';
 import { generateUUID, generateBookingCode } from '../../utils/ids';
 import { generateQrToken, generateQrDataUrl } from '../../utils/qr';
 import { scoreSeat } from '../../utils/scoring';
-import { emitSeatUpdated, emitBookingUpdated } from '../../realtime/socket';
+import { emitSeatUpdated, emitBookingUpdated, emitBookingReleased } from '../../realtime/socket';
 import { createNotification } from '../notifications/service';
 import { notifyNextInWaitlist } from '../waitlist/service';
 
@@ -77,7 +79,7 @@ const BOOKING_SELECT_SQL = `
 `;
 
 // POST /bookings
-bookingsRouter.post('/', authenticate, async (req, res, next) => {
+bookingsRouter.post('/', authenticate, bookingRateLimiter, async (req, res, next) => {
   try {
     const userId = req.user!.id;
     const idempotencyKey = (req.headers['idempotency-key'] as string) || null;
@@ -234,219 +236,229 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
       }
     }
 
-    // Check user overlapping bookings on same date
-    const userActiveBookings = await query<any[]>(
-      `SELECT b.id, sl.start_time, sl.end_time
-       FROM bookings b
-       JOIN time_slots sl ON sl.id = b.slot_id
-       WHERE b.user_id = ? AND b.booking_date = ? AND b.status IN ('CONFIRMED', 'CHECKED_IN')`,
-      [userId, date]
-    );
+    // Execute reservation within an ACID Transaction guaranteeing Atomicity, Consistency, and Isolation
+    const booking = await withTransaction(async (tx) => {
+      // 1. Isolation & Consistency: Lock seat row FOR UPDATE
+      const seatRows = await tx.query<any[]>(
+        `SELECT * FROM seats WHERE id = ? AND library_id = ? AND is_active = 1 FOR UPDATE`,
+        [seatId, libraryId]
+      );
+      if (seatRows.length === 0) {
+        throw new AppError('NOT_FOUND', 'Seat not found or inactive', 404);
+      }
 
-    for (const active of userActiveBookings) {
-      if (active.start_time < endTime && active.end_time > startTime) {
-        return sendError(
-          res,
-          'OVERLAPPING_BOOKING',
-          'You already have an active booking during this time slot',
-          409,
-          { conflictingBookingId: active.id }
+      // 2. Isolation & Consistency: Lock slot row FOR UPDATE
+      const slotRows = await tx.query<any[]>(
+        `SELECT * FROM time_slots WHERE id = ? AND library_id = ? AND is_active = 1 FOR UPDATE`,
+        [slotId, libraryId]
+      );
+      if (slotRows.length === 0) {
+        throw new AppError('NOT_FOUND', 'Time slot not found or inactive', 404);
+      }
+      const activeSlot = slotRows[0];
+
+      // 3. Consistency: Check user overlapping bookings on same date FOR UPDATE
+      const userActiveBookings = await tx.query<any[]>(
+        `SELECT b.id, sl.start_time, sl.end_time
+         FROM bookings b
+         JOIN time_slots sl ON sl.id = b.slot_id
+         WHERE b.user_id = ? AND b.booking_date = ? AND b.status IN ('CONFIRMED', 'CHECKED_IN')
+         FOR UPDATE`,
+        [userId, date]
+      );
+
+      for (const active of userActiveBookings) {
+        if (active.start_time < endTime && active.end_time > startTime) {
+          throw new AppError(
+            'OVERLAPPING_BOOKING',
+            'You already have an active booking during this time slot',
+            409,
+            { conflictingBookingId: active.id }
+          );
+        }
+      }
+
+      // 4. Consistency: Check waitlist hold
+      const held = await tx.query<any[]>(
+        `SELECT * FROM waitlist_entries
+         WHERE seat_id = ? AND slot_id = ? AND booking_date = ?
+           AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()
+         FOR UPDATE`,
+        [seatId, slotId, date]
+      );
+      if (held.length > 0 && held[0].user_id !== userId) {
+        throw new AppError(
+          'SEAT_HELD_FOR_WAITLIST',
+          'This seat is currently held for a waitlisted user',
+          409
         );
       }
-    }
 
-    // Check waitlist hold
-    const held = await query<any[]>(
-      `SELECT * FROM waitlist_entries
-       WHERE seat_id = ? AND slot_id = ? AND booking_date = ?
-         AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()`,
-      [seatId, slotId, date]
-    );
-    if (held.length > 0 && held[0].user_id !== userId) {
-      return sendError(
-        res,
-        'SEAT_HELD_FOR_WAITLIST',
-        'This seat is currently held for a waitlisted user',
-        409
-      );
-    }
-
-    // Check if seat is currently active and belongs to library
-    const seatRows = await query<any[]>(
-      `SELECT * FROM seats WHERE id = ? AND library_id = ? AND is_active = 1`,
-      [seatId, libraryId]
-    );
-    if (seatRows.length === 0) {
-      return sendError(res, 'NOT_FOUND', 'Seat not found or inactive', 404);
-    }
-
-    // Check availability
-    const conflict = await query<any[]>(
-      `SELECT b.id FROM bookings b
-       JOIN time_slots sl ON sl.id = b.slot_id
-       WHERE b.seat_id = ? AND b.booking_date = ?
-         AND b.status IN ('CONFIRMED', 'CHECKED_IN')
-         AND (sl.start_time < ? AND sl.end_time > ?)`,
-      [seatId, date, endTime, startTime]
-    );
-
-    if (conflict.length > 0) {
-      // Seat is booked -> compute alternatives
-      const candidateSeats = await query<any[]>(
-        `SELECT s.id, s.floor_id, s.label, s.seat_type, s.facing,
-                s.attr_window, s.attr_power_outlet, s.attr_quiet_zone, s.attr_near_door,
-                s.group_capacity, f.label as floor_label
-         FROM seats s
-         JOIN floors f ON f.id = s.floor_id
-         WHERE s.library_id = ? AND s.is_active = 1 AND s.id != ?
-           AND s.id NOT IN (
-             SELECT b.seat_id FROM bookings b
-             JOIN time_slots sl ON sl.id = b.slot_id
-             WHERE b.library_id = ? AND b.booking_date = ?
-               AND b.status IN ('CONFIRMED', 'CHECKED_IN')
-               AND (sl.start_time < ? AND sl.end_time > ?)
-           )
-           AND s.id NOT IN (
-             SELECT seat_id FROM waitlist_entries
-             WHERE slot_id = ? AND booking_date = ? AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()
-           )
-         LIMIT 15`,
-        [libraryId, seatId, libraryId, date, endTime, startTime, slotId, date]
+      // 5. Consistency & Isolation: Check seat availability across time interval FOR UPDATE
+      const conflict = await tx.query<any[]>(
+        `SELECT b.id FROM bookings b
+         JOIN time_slots sl ON sl.id = b.slot_id
+         WHERE b.seat_id = ? AND b.booking_date = ?
+           AND b.status IN ('CONFIRMED', 'CHECKED_IN')
+           AND (sl.start_time < ? AND sl.end_time > ?)
+         FOR UPDATE`,
+        [seatId, date, endTime, startTime]
       );
 
-      // Fetch user preferences
-      const prefRows = await query<any[]>(
-        `SELECT * FROM user_preferences WHERE user_id = ?`,
-        [userId]
-      );
-      const userPrefs = prefRows.length > 0 ? {
-        seatType: prefRows[0].seat_type,
-        window: Boolean(prefRows[0].window),
-        powerOutlet: Boolean(prefRows[0].power_outlet),
-        quietZone: Boolean(prefRows[0].quiet_zone),
-      } : {};
-
-      const alternatives = candidateSeats.map((c) => {
-        const scored = scoreSeat(
-          {
-            id: c.id,
-            floorId: c.floor_id,
-            label: c.label,
-            seatType: c.seat_type,
-            facing: c.facing,
-            attributes: {
-              window: Boolean(c.attr_window),
-              powerOutlet: Boolean(c.attr_power_outlet),
-              quietZone: Boolean(c.attr_quiet_zone),
-              nearDoor: Boolean(c.attr_near_door),
-            },
-            groupCapacity: c.group_capacity,
-          },
-          userPrefs
+      if (conflict.length > 0) {
+        // Compute smart alternatives
+        const candidateSeats = await tx.query<any[]>(
+          `SELECT s.id, s.floor_id, s.label, s.seat_type, s.facing,
+                  s.attr_window, s.attr_power_outlet, s.attr_quiet_zone, s.attr_near_door,
+                  s.group_capacity, f.label as floor_label
+           FROM seats s
+           JOIN floors f ON f.id = s.floor_id
+           WHERE s.library_id = ? AND s.is_active = 1 AND s.id != ?
+             AND s.id NOT IN (
+               SELECT b.seat_id FROM bookings b
+               JOIN time_slots sl ON sl.id = b.slot_id
+               WHERE b.library_id = ? AND b.booking_date = ?
+                 AND b.status IN ('CONFIRMED', 'CHECKED_IN')
+                 AND (sl.start_time < ? AND sl.end_time > ?)
+             )
+             AND s.id NOT IN (
+               SELECT seat_id FROM waitlist_entries
+               WHERE slot_id = ? AND booking_date = ? AND status = 'NOTIFIED' AND claim_expires_at > UTC_TIMESTAMP()
+             )
+           LIMIT 15`,
+          [libraryId, seatId, libraryId, date, endTime, startTime, slotId, date]
         );
-        return {
-          seat: {
-            id: c.id,
-            floorId: c.floor_id,
-            label: c.label,
-            seatType: c.seat_type,
-            facing: c.facing,
-            attributes: {
-              window: Boolean(c.attr_window),
-              powerOutlet: Boolean(c.attr_power_outlet),
-              quietZone: Boolean(c.attr_quiet_zone),
-              nearDoor: Boolean(c.attr_near_door),
+
+        const prefRows = await tx.query<any[]>(
+          `SELECT * FROM user_preferences WHERE user_id = ?`,
+          [userId]
+        );
+        const userPrefs = prefRows.length > 0 ? {
+          seatType: prefRows[0].seat_type,
+          window: Boolean(prefRows[0].window),
+          powerOutlet: Boolean(prefRows[0].power_outlet),
+          quietZone: Boolean(prefRows[0].quiet_zone),
+        } : {};
+
+        const alternatives = candidateSeats.map((c) => {
+          const scored = scoreSeat(
+            {
+              id: c.id,
+              floorId: c.floor_id,
+              label: c.label,
+              seatType: c.seat_type,
+              facing: c.facing,
+              attributes: {
+                window: Boolean(c.attr_window),
+                powerOutlet: Boolean(c.attr_power_outlet),
+                quietZone: Boolean(c.attr_quiet_zone),
+                nearDoor: Boolean(c.attr_near_door),
+              },
+              groupCapacity: c.group_capacity,
             },
-            isActive: true,
-          },
-          floorLabel: c.floor_label,
-          score: scored.score,
-          reasons: scored.reasons,
-        };
-      });
+            userPrefs
+          );
+          return {
+            seat: {
+              id: c.id,
+              floorId: c.floor_id,
+              label: c.label,
+              seatType: c.seat_type,
+              facing: c.facing,
+              attributes: {
+                window: Boolean(c.attr_window),
+                powerOutlet: Boolean(c.attr_power_outlet),
+                quietZone: Boolean(c.attr_quiet_zone),
+                nearDoor: Boolean(c.attr_near_door),
+              },
+              isActive: true,
+            },
+            floorLabel: c.floor_label,
+            score: scored.score,
+            reasons: scored.reasons,
+          };
+        });
 
-      alternatives.sort((a, b) => b.score - a.score);
+        alternatives.sort((a, b) => b.score - a.score);
 
-      return sendError(
-        res,
-        'SEAT_UNAVAILABLE',
-        'The selected seat is already reserved for this slot',
-        409,
-        { alternatives: alternatives.slice(0, 5) }
+        throw new AppError(
+          'SEAT_UNAVAILABLE',
+          'The selected seat is already reserved for this slot',
+          409,
+          { alternatives: alternatives.slice(0, 5) }
+        );
+      }
+
+      // 6. Calculate graceUntil (15 min buffer)
+      const [startHour, startMin] = activeSlot.start_time.split(':').map(Number);
+      const [endHour, endMin] = activeSlot.end_time.split(':').map(Number);
+      const slotStartDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
+      const slotEndDate = new Date(`${date}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`);
+      const defaultGraceDate = new Date(slotStartDate.getTime() + 15 * 60 * 1000);
+
+      let finalGraceUntil = defaultGraceDate;
+      const isOngoing = slotStartDate <= now && now < slotEndDate;
+      if (isOngoing) {
+        const graceFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+        finalGraceUntil = graceFromNow < slotEndDate ? graceFromNow : slotEndDate;
+      }
+
+      const bookingId = generateUUID();
+      const code = generateBookingCode();
+      const qrSecret = generateUUID();
+      const pricePaise = activeSlot.is_free ? 0 : activeSlot.price_paise;
+      const paymentStatus = activeSlot.is_free ? 'FREE' : 'PAID';
+
+      // 7. Atomicity: Insert booking within transaction
+      await tx.execute(
+        `INSERT INTO bookings (
+          id, code, library_id, seat_id, slot_id, user_id, booking_date, status, source,
+          price_paise, payment_status, grace_until, arrival_confirmed, reminder_sent_at, qr_secret, idempotency_key, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'ONLINE', ?, ?, ?, 0, ${isOngoing ? 'UTC_TIMESTAMP()' : 'NULL'}, ?, ?, UTC_TIMESTAMP())`,
+        [
+          bookingId,
+          code,
+          libraryId,
+          seatId,
+          slotId,
+          userId,
+          date,
+          pricePaise,
+          paymentStatus,
+          finalGraceUntil,
+          qrSecret,
+          idempotencyKey,
+        ]
       );
-    }
 
-    // Calculate graceUntil:
-    // Slot start time on the booking date in local time
-    const [startHour, startMin] = slot.start_time.split(':').map(Number);
-    const [endHour, endMin] = slot.end_time.split(':').map(Number);
+      // 8. Atomicity: If user was on waitlist, mark as CLAIMED within same transaction
+      await tx.execute(
+        `UPDATE waitlist_entries
+         SET status = 'CLAIMED'
+         WHERE user_id = ? AND seat_id = ? AND slot_id = ? AND booking_date = ?`,
+        [userId, seatId, slotId, date]
+      );
 
-    const slotStartDate = new Date(`${date}T${String(startHour).padStart(2, '0')}:${String(startMin).padStart(2, '0')}:00`);
-    const slotEndDate = new Date(`${date}T${String(endHour).padStart(2, '0')}:${String(endMin).padStart(2, '0')}:00`);
-    const defaultGraceDate = new Date(slotStartDate.getTime() + 30 * 60 * 1000);
+      // 9. Fetch full booking record before commit
+      const createdRows = await tx.query<any[]>(
+        `${BOOKING_SELECT_SQL} WHERE b.id = ?`,
+        [bookingId]
+      );
+      return mapBookingRow(createdRows[0]);
+    });
 
-    let finalGraceUntil = defaultGraceDate;
-
-    const isOngoing = slotStartDate <= now && now < slotEndDate;
-    if (isOngoing) {
-      const graceFromNow = new Date(now.getTime() + 30 * 60 * 1000);
-      finalGraceUntil = graceFromNow < slotEndDate ? graceFromNow : slotEndDate;
-    }
-
-    const bookingId = generateUUID();
-    const code = generateBookingCode();
-    const qrSecret = generateUUID();
-    const pricePaise = slot.is_free ? 0 : slot.price_paise;
-    const paymentStatus = slot.is_free ? 'FREE' : 'PAID';
-
-    await query(
-      `INSERT INTO bookings (
-        id, code, library_id, seat_id, slot_id, user_id, booking_date, status, source,
-        price_paise, payment_status, grace_until, arrival_confirmed, reminder_sent_at, qr_secret, idempotency_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'CONFIRMED', 'ONLINE', ?, ?, ?, 0, ${isOngoing ? 'UTC_TIMESTAMP()' : 'NULL'}, ?, ?, UTC_TIMESTAMP())`,
-      [
-        bookingId,
-        code,
-        libraryId,
-        seatId,
-        slotId,
-        userId,
-        date,
-        pricePaise,
-        paymentStatus,
-        finalGraceUntil,
-        qrSecret,
-        idempotencyKey,
-      ]
-    );
-
-    // If user was on waitlist, mark as CLAIMED
-    await query(
-      `UPDATE waitlist_entries
-       SET status = 'CLAIMED'
-       WHERE user_id = ? AND seat_id = ? AND slot_id = ? AND booking_date = ?`,
-      [userId, seatId, slotId, date]
-    );
-
-    // Broadcast seat updated
+    // Durability & Side effects: Transaction committed successfully to disk
+    // Broadcast real-time events and queue notifications
     emitSeatUpdated(libraryId, seatId, slotId, date, 'BOOKED');
-
-    // Fetch full booking row
-    const createdRows = await query<any[]>(
-      `${BOOKING_SELECT_SQL} WHERE b.id = ?`,
-      [bookingId]
-    );
-    const booking = mapBookingRow(createdRows[0]);
     emitBookingUpdated(libraryId, booking);
 
-    // Send notification (non-fatal if notification delivery encounters issues)
     try {
       await createNotification({
         userId,
         type: 'BOOKING_CONFIRMED',
         title: 'Booking Confirmed!',
         body: `Your seat ${booking.seat.label} at ${booking.libraryName} is reserved for ${booking.slot.name} on ${booking.date}.`,
-        data: { bookingId, code },
+        data: { bookingId: booking.id, code: booking.code },
       });
     } catch (notifErr) {
       console.warn('[Bookings] Could not deliver notification (non-fatal):', notifErr);
@@ -454,6 +466,9 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
 
     sendSuccess(res, booking, undefined, 201);
   } catch (err: any) {
+    if (err instanceof AppError) {
+      return sendError(res, err.code, err.message, err.status, err.details);
+    }
     if (err.code === 'ER_DUP_ENTRY') {
       return sendError(
         res,
@@ -471,6 +486,52 @@ bookingsRouter.post('/', authenticate, async (req, res, next) => {
 bookingsRouter.get('/me', authenticate, async (req, res, next) => {
   try {
     const userId = req.user!.id;
+
+    // Active read auto-expiry: any confirmed booking whose 15-minute buffer has expired transitions to NO_SHOW immediately
+    try {
+      const expiredBookings = await query<any[]>(
+        `SELECT b.id, b.library_id, b.seat_id, b.slot_id, b.booking_date, b.code, b.user_id
+         FROM bookings b
+         WHERE b.user_id = ? AND b.status = 'CONFIRMED'
+           AND (b.grace_until <= UTC_TIMESTAMP() OR b.grace_until <= NOW())`,
+        [userId]
+      );
+
+      if (expiredBookings.length > 0) {
+        await query(
+          `UPDATE bookings
+           SET status = 'NO_SHOW', cancelled_at = NOW()
+           WHERE user_id = ? AND status = 'CONFIRMED'
+             AND (grace_until <= UTC_TIMESTAMP() OR grace_until <= NOW())`,
+          [userId]
+        );
+
+        for (const exp of expiredBookings) {
+          const dateStr =
+            typeof exp.booking_date === 'string'
+              ? exp.booking_date.substring(0, 10)
+              : new Date(exp.booking_date).toISOString().substring(0, 10);
+
+          emitSeatUpdated(exp.library_id, exp.seat_id, exp.slot_id, dateStr, 'AVAILABLE');
+          emitBookingReleased(exp.user_id, {
+            bookingId: exp.id,
+            reason: 'NO_SHOW',
+            message: `Your reservation (${exp.code}) was automatically cancelled because the 15-minute buffer wait time expired.`,
+          });
+          notifyNextInWaitlist(exp.seat_id, exp.slot_id, dateStr).catch(() => {});
+          createNotification({
+            userId,
+            type: 'NO_SHOW',
+            title: 'Slot Cancelled (15-Min Buffer Expired)',
+            body: `Your reservation (${exp.code}) was automatically cancelled because 15 minutes elapsed without check-in. The seat has been released.`,
+            data: { bookingId: exp.id },
+          }).catch(() => {});
+        }
+      }
+    } catch (expErr) {
+      console.warn('[Bookings] Auto-expiry check error on /bookings/me:', expErr);
+    }
+
     const { status, upcoming, page = 1, pageSize = 20 } = req.query;
 
     let sql = `${BOOKING_SELECT_SQL} WHERE b.user_id = ?`;
@@ -637,7 +698,7 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
     const dateStr = typeof b.booking_date === 'string' ? b.booking_date.substring(0, 10) : new Date(b.booking_date).toISOString().substring(0, 10);
 
     if (coming === false) {
-      // User tapped "not coming" -> cancel
+      // User tapped "not coming" -> directly cancel and release seat
       await query(
         `UPDATE bookings SET status = 'CANCELLED', cancelled_at = NOW() WHERE id = ?`,
         [id]
@@ -647,12 +708,30 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
       const mapped = mapBookingRow(updated[0]);
       emitSeatUpdated(b.library_id, b.seat_id, b.slot_id, dateStr, 'AVAILABLE');
       emitBookingUpdated(b.library_id, mapped);
+      emitBookingReleased(userId, {
+        bookingId: b.id,
+        reason: 'CANCELLED',
+        message: 'Your booking was cancelled as you indicated you are not coming.',
+      });
+
+      try {
+        await createNotification({
+          userId,
+          type: 'BOOKING_CANCELLED',
+          title: 'Booking Cancelled & Seat Released',
+          body: `Your booking for seat ${b.seat_label} at ${b.library_name} was cancelled as requested and the seat has been released.`,
+          data: { bookingId: b.id, seatLabel: b.seat_label, libraryName: b.library_name },
+        });
+      } catch (notifErr) {
+        console.warn('[Bookings] Could not deliver cancellation notification:', notifErr);
+      }
+
       return sendSuccess(res, mapped);
     }
 
-    // coming === true
+    // coming === true -> 15 minutes buffer wait time granted irrespective of slot hours
     if (b.arrival_confirmed) {
-      return sendError(res, 'BAD_REQUEST', 'Arrival extension has already been used once for this booking', 409);
+      return sendError(res, 'BAD_REQUEST', 'Arrival buffer has already been confirmed for this booking', 409);
     }
 
     if (b.status !== 'CONFIRMED') {
@@ -661,14 +740,28 @@ bookingsRouter.post('/:id/confirm-arrival', authenticate, async (req, res, next)
 
     await query(
       `UPDATE bookings
-       SET grace_until = DATE_ADD(grace_until, INTERVAL 30 MINUTE),
+       SET grace_until = DATE_ADD(UTC_TIMESTAMP(), INTERVAL 15 MINUTE),
            arrival_confirmed = 1
        WHERE id = ?`,
       [id]
     );
 
+    try {
+      await createNotification({
+        userId,
+        type: 'GRACE_EXTENDED',
+        title: '15-Minute Buffer Granted',
+        body: `You have 15 minutes to arrive and check in for seat ${b.seat_label} at ${b.library_name}. If not checked in within 15 minutes, the slot will be cancelled automatically.`,
+        data: { bookingId: b.id, seatLabel: b.seat_label, libraryName: b.library_name },
+      });
+    } catch (notifErr) {
+      console.warn('[Bookings] Could not deliver grace notification:', notifErr);
+    }
+
     const updated = await query<any[]>(`${BOOKING_SELECT_SQL} WHERE b.id = ?`, [id]);
-    sendSuccess(res, mapBookingRow(updated[0]));
+    const mapped = mapBookingRow(updated[0]);
+    emitBookingUpdated(b.library_id, mapped);
+    sendSuccess(res, mapped);
   } catch (err) {
     next(err);
   }

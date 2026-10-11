@@ -11,6 +11,7 @@ import {
   saveStoredSlotsForLibrary,
   addStoredNotification,
 } from '../../mocks/storage';
+import { TimeSlot } from '../../api/types';
 import {
   Building,
   User,
@@ -32,6 +33,7 @@ import {
   Navigation,
   ChevronDown,
   ChevronUp,
+  Clock,
 } from 'lucide-react';
 import { LocationPickerMap } from '../../components/Map/LocationPickerMap';
 import { geocodeAddress } from '../../utils/geocoding';
@@ -69,9 +71,20 @@ export const RegisterLibrary: React.FC = () => {
   const [powerOutlets, setPowerOutlets] = useState(true);
   const [isFree, setIsFree] = useState(false);
 
+  // Per-slot pricing (in INR ₹)
+  const [morningPrice, setMorningPrice] = useState(50);
+  const [afternoonPrice, setAfternoonPrice] = useState(60);
+  const [eveningPrice, setEveningPrice] = useState(50);
+  const [nightPrice, setNightPrice] = useState(40);
+
   const { user, isAuthenticated, setAuth } = useAuthStore();
   const { addToast } = useUiStore();
   const navigate = useNavigate();
+
+  // Auto-scroll to top of form when step changes so the header is always visible
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [step]);
 
   // If already authenticated as library admin, redirect directly to /admin
   useEffect(() => {
@@ -123,31 +136,47 @@ export const RegisterLibrary: React.FC = () => {
     }
   };
 
+  const fillSampleData = () => {
+    setAdminName('Rajesh Kumar');
+    setAdminEmail(`admin.${Date.now().toString().slice(-4)}@centrallibrary.org`);
+    setAdminPassword('Password123!');
+    setAdminPhone('+91 80 2558 1234');
+    setLibName('Central Study Hub');
+    setDescription('Premier air-conditioned library with high-speed fiber internet and quiet research desks.');
+    setStreetAddress('42 MG Road');
+    setLandmark('Ashok Nagar, Near Trinity Metro');
+    setCity('Bengaluru');
+    setState('Karnataka');
+    setPostalCode('560001');
+    setCountry('India');
+    setLatitude(12.9716);
+    setLongitude(77.5946);
+    addToast({
+      type: 'info',
+      title: 'Sample Data Loaded',
+      message: 'Demo administrator and library details pre-filled for rapid setup.',
+    });
+  };
+
   const handleNext = () => {
     if (step === 1) {
-      if (!adminName || !adminEmail || !adminPassword) {
+      if (!adminName.trim() || !adminEmail.trim() || !adminPassword) {
         addToast({ type: 'warning', title: 'Missing fields', message: 'Please complete all admin account fields.' });
+        return;
+      }
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(adminEmail.trim())) {
+        addToast({ type: 'warning', title: 'Invalid Email', message: 'Please enter a valid official email address.' });
         return;
       }
       if (adminPassword.length < 8) {
         addToast({ type: 'warning', title: 'Weak Password', message: 'Password must be at least 8 characters.' });
         return;
       }
-
-      // If user is already registered as a library admin, smoothly log them in
-      const existing = findStoredUserByEmail(adminEmail);
-      if (existing && existing.role === 'LIBRARY_ADMIN') {
-        setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
-        addToast({
-          type: 'success',
-          title: 'Welcome Back!',
-          message: 'Found your registered library account. Redirecting to your dashboard...',
-        });
-        navigate('/admin');
-        return;
-      }
+      setStep(2);
+      return;
     } else if (step === 2) {
-      if (!libName || !streetAddress || !city) {
+      if (!libName.trim() || !streetAddress.trim() || !city.trim()) {
         addToast({ type: 'warning', title: 'Missing fields', message: 'Please provide library name, street address and city.' });
         return;
       }
@@ -155,8 +184,9 @@ export const RegisterLibrary: React.FC = () => {
       if (latitude === 12.9716 && longitude === 77.5946) {
         handleAutoGeocode(true);
       }
+      setStep(3);
+      return;
     }
-    setStep((s) => s + 1);
   };
 
   const getFullFormattedAddress = () => {
@@ -173,27 +203,70 @@ export const RegisterLibrary: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // 1. Validate Step 1 fields
+    if (!adminName.trim()) {
+      addToast({ type: 'warning', title: 'Missing Admin Name', message: 'Please enter administrator full name in Step 1.' });
+      setStep(1);
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!adminEmail.trim() || !emailRegex.test(adminEmail.trim())) {
+      addToast({ type: 'warning', title: 'Invalid Email', message: 'Please provide a valid official email address in Step 1.' });
+      setStep(1);
+      return;
+    }
+    if (!adminPassword || adminPassword.length < 8) {
+      addToast({ type: 'warning', title: 'Weak Password', message: 'Admin password must be at least 8 characters in Step 1.' });
+      setStep(1);
+      return;
+    }
+
+    // 2. Validate Step 2 fields
+    if (!libName.trim()) {
+      addToast({ type: 'warning', title: 'Missing Library Name', message: 'Please enter library name in Step 2.' });
+      setStep(2);
+      return;
+    }
+    if (!streetAddress.trim()) {
+      addToast({ type: 'warning', title: 'Missing Address', message: 'Please enter library street address in Step 2.' });
+      setStep(2);
+      return;
+    }
+    if (!city.trim()) {
+      addToast({ type: 'warning', title: 'Missing City', message: 'Please enter library city in Step 2.' });
+      setStep(2);
+      return;
+    }
+
     setLoading(true);
 
     const fullAddress = getFullFormattedAddress();
 
     try {
+      const slotPricingPayload = {
+        morningPrice: isFree ? 0 : Number(morningPrice) || 0,
+        afternoonPrice: isFree ? 0 : Number(afternoonPrice) || 0,
+        eveningPrice: isFree ? 0 : Number(eveningPrice) || 0,
+        nightPrice: isFree ? 0 : Number(nightPrice) || 0,
+      };
+
       const data = await authApi.registerLibrary({
         admin: {
-          name: adminName,
-          email: adminEmail,
+          name: adminName.trim(),
+          email: adminEmail.trim().toLowerCase(),
           password: adminPassword,
-          phone: adminPhone || undefined,
+          phone: adminPhone?.trim() || undefined,
         },
         library: {
-          name: libName,
-          description,
+          name: libName.trim(),
+          description: description?.trim() || undefined,
           address: fullAddress,
-          city,
-          latitude,
-          longitude,
-          contactEmail: adminEmail,
-          contactPhone: adminPhone || undefined,
+          city: city.trim(),
+          latitude: Number(latitude) || 12.9716,
+          longitude: Number(longitude) || 77.5946,
+          contactEmail: adminEmail.trim().toLowerCase(),
+          contactPhone: adminPhone?.trim() || undefined,
           amenities: {
             lockers,
             cctv,
@@ -202,6 +275,7 @@ export const RegisterLibrary: React.FC = () => {
             powerOutlets,
           },
           isFree,
+          slotPricing: slotPricingPayload,
         },
       });
 
@@ -214,7 +288,7 @@ export const RegisterLibrary: React.FC = () => {
       navigate('/admin');
     } catch (err: any) {
       // 1. If user is already registered as a library admin, smoothly log them in to their dashboard
-      const existing = findStoredUserByEmail(adminEmail);
+      const existing = findStoredUserByEmail(adminEmail.trim().toLowerCase());
       if (existing && existing.role === 'LIBRARY_ADMIN') {
         setAuth(existing, `mock-token-${existing.id}-${Date.now()}`);
         addToast({
@@ -244,14 +318,13 @@ export const RegisterLibrary: React.FC = () => {
 
       // If network is unreachable while in mock mode, complete registration directly into storage
       if (isNetworkError && import.meta.env.VITE_USE_MOCKS === 'true') {
-
         const libId = `lib-${Date.now()}`;
         const newAdmin = {
           id: `usr-${Date.now()}`,
-          name: adminName,
-          email: adminEmail,
+          name: adminName.trim(),
+          email: adminEmail.trim().toLowerCase(),
           role: 'LIBRARY_ADMIN' as const,
-          phone: adminPhone || undefined,
+          phone: adminPhone?.trim() || undefined,
           libraryId: libId,
           createdAt: new Date().toISOString(),
         };
@@ -259,14 +332,14 @@ export const RegisterLibrary: React.FC = () => {
 
         const newLib = {
           id: libId,
-          name: libName,
-          description: description || undefined,
+          name: libName.trim(),
+          description: description?.trim() || undefined,
           address: fullAddress,
-          city,
-          latitude,
-          longitude,
-          contactEmail: adminEmail,
-          contactPhone: adminPhone || undefined,
+          city: city.trim(),
+          latitude: Number(latitude) || 12.9716,
+          longitude: Number(longitude) || 77.5946,
+          contactEmail: adminEmail.trim().toLowerCase(),
+          contactPhone: adminPhone?.trim() || undefined,
           amenities: {
             lockers,
             cctv,
@@ -283,7 +356,49 @@ export const RegisterLibrary: React.FC = () => {
         };
         saveStoredLibrary(newLib);
         saveStoredFloorsForLibrary(libId, {});
-        saveStoredSlotsForLibrary(libId, []);
+        const initialSlots: TimeSlot[] = [
+          {
+            id: `slot-${libId}-morning`,
+            libraryId: libId,
+            name: 'MORNING',
+            startTime: '06:00',
+            endTime: '12:00',
+            isFree: isFree || morningPrice === 0,
+            pricePaise: isFree ? 0 : morningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${libId}-afternoon`,
+            libraryId: libId,
+            name: 'AFTERNOON',
+            startTime: '12:00',
+            endTime: '17:00',
+            isFree: isFree || afternoonPrice === 0,
+            pricePaise: isFree ? 0 : afternoonPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${libId}-evening`,
+            libraryId: libId,
+            name: 'EVENING',
+            startTime: '17:00',
+            endTime: '21:00',
+            isFree: isFree || eveningPrice === 0,
+            pricePaise: isFree ? 0 : eveningPrice * 100,
+            isActive: true,
+          },
+          {
+            id: `slot-${libId}-night`,
+            libraryId: libId,
+            name: 'NIGHT',
+            startTime: '21:00',
+            endTime: '23:59',
+            isFree: isFree || nightPrice === 0,
+            pricePaise: isFree ? 0 : nightPrice * 100,
+            isActive: true,
+          },
+        ];
+        saveStoredSlotsForLibrary(libId, initialSlots);
 
         addStoredNotification(newAdmin.id, {
           id: `notif-${Date.now()}`,
@@ -304,10 +419,18 @@ export const RegisterLibrary: React.FC = () => {
         return;
       }
 
+      const fieldErrors = err?.details?.fields
+        ? Object.entries(err.details.fields as Record<string, string>)
+            .map(([field, msg]) => `${field.replace(/^library\./, '').replace(/^admin\./, '')}: ${msg}`)
+            .join(' • ')
+        : '';
+
       addToast({
         type: 'error',
         title: 'Registration Error',
-        message: isNetworkError
+        message: fieldErrors
+          ? `Please check required fields: ${fieldErrors}`
+          : isNetworkError
           ? 'Unable to reach the server. Please verify the backend is running on http://localhost:4000.'
           : err.message || 'Could not complete library registration.',
       });
@@ -317,48 +440,113 @@ export const RegisterLibrary: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto my-12 px-4 sm:px-0">
-      <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-xl space-y-6">
+    <div className="max-w-2xl mx-auto my-4 sm:my-8 px-4 sm:px-0">
+      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl space-y-6">
         {/* Header */}
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-2 relative">
+          <button
+            type="button"
+            onClick={fillSampleData}
+            className="absolute right-0 top-0 text-[11px] font-semibold text-primary hover:text-primary-hover bg-primary/5 hover:bg-primary/10 px-2.5 py-1 rounded-lg border border-primary/20 transition-all flex items-center gap-1 cursor-pointer"
+            title="Auto-fill with sample test data"
+          >
+            <Sparkles className="w-3 h-3 text-accent" /> Auto-Fill Demo
+          </button>
+
           <div className="w-12 h-12 rounded-2xl bg-navy text-white flex items-center justify-center mx-auto shadow-md">
             <Building className="w-6 h-6 text-accent" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900">List Your Library</h2>
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">List Your Library</h2>
           <p className="text-xs text-slate-500">
             Join the Vidya Asana network to automate reservations and prevent no-shows
           </p>
 
-          {/* Stepper Indicator */}
-          <div className="flex items-center justify-center gap-2 pt-4">
-            <span
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                step >= 1 ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-400'
+          {/* Stepper Indicator with Clean Labels */}
+          <div className="flex items-center justify-center gap-2 pt-3">
+            <button
+              type="button"
+              onClick={() => setStep(1)}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 1
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : step > 1
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-400'
               }`}
             >
-              1
-            </span>
-            <div className={`w-8 h-0.5 ${step >= 2 ? 'bg-primary' : 'bg-slate-200'}`} />
-            <span
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                step >= 2 ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-400'
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">
+                {step > 1 ? '✓' : '1'}
+              </span>
+              <span>Account</span>
+            </button>
+
+            <div className={`w-4 h-0.5 ${step >= 2 ? 'bg-primary' : 'bg-slate-200'}`} />
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!adminName.trim() || !adminEmail.trim() || adminPassword.length < 8) {
+                  addToast({ type: 'warning', title: 'Step 1 Incomplete', message: 'Please enter admin name, email, and password first.' });
+                  setStep(1);
+                  return;
+                }
+                setStep(2);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 2
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : step > 2
+                  ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                  : 'bg-slate-100 text-slate-400'
               }`}
             >
-              2
-            </span>
-            <div className={`w-8 h-0.5 ${step >= 3 ? 'bg-primary' : 'bg-slate-200'}`} />
-            <span
-              className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all ${
-                step >= 3 ? 'bg-primary text-white shadow-sm' : 'bg-slate-100 text-slate-400'
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">
+                {step > 2 ? '✓' : '2'}
+              </span>
+              <span>Location</span>
+            </button>
+
+            <div className={`w-4 h-0.5 ${step >= 3 ? 'bg-primary' : 'bg-slate-200'}`} />
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!adminName.trim() || !adminEmail.trim() || adminPassword.length < 8) {
+                  addToast({ type: 'warning', title: 'Step 1 Incomplete', message: 'Please enter admin name, email, and password first.' });
+                  setStep(1);
+                  return;
+                }
+                if (!libName.trim() || !streetAddress.trim() || !city.trim()) {
+                  addToast({ type: 'warning', title: 'Step 2 Incomplete', message: 'Please enter library name, address, and city first.' });
+                  setStep(2);
+                  return;
+                }
+                setStep(3);
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                step === 3
+                  ? 'bg-primary text-white shadow-sm ring-2 ring-primary/25'
+                  : 'bg-slate-100 text-slate-400'
               }`}
             >
-              3
-            </span>
+              <span className="w-4 h-4 rounded-full flex items-center justify-center text-[10px]">3</span>
+              <span>Pricing</span>
+            </button>
           </div>
         </div>
 
         {/* Form Body */}
-        <form onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="space-y-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (step < 3) {
+              handleNext();
+            } else {
+              handleSubmit(e);
+            }
+          }}
+          className="space-y-4"
+        >
           {step === 1 && (
             <div className="space-y-4 animate-fade-in">
               <h3 className="font-bold text-sm text-slate-900 border-b pb-2">
@@ -626,15 +814,21 @@ export const RegisterLibrary: React.FC = () => {
           )}
 
           {step === 3 && (
-            <div className="space-y-4 animate-fade-in">
-              <h3 className="font-bold text-sm text-slate-900 border-b pb-2">
-                Step 3: Amenities & Admission
-              </h3>
+            <div className="space-y-5 animate-fade-in">
+              <div className="border-b pb-2 flex items-center justify-between">
+                <h3 className="font-bold text-sm text-slate-900">
+                  Step 3: Amenities & Admission Pricing
+                </h3>
+                <span className="text-[11px] font-medium text-slate-500">
+                  Facilities & slot fees
+                </span>
+              </div>
 
+              {/* Amenities */}
               <div className="space-y-2">
                 <span className="text-xs font-semibold text-slate-700 block">Available Amenities:</span>
                 <div className="grid grid-cols-2 gap-2 text-xs">
-                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={ac}
@@ -642,10 +836,10 @@ export const RegisterLibrary: React.FC = () => {
                       className="rounded text-primary"
                     />
                     <Wind className="w-4 h-4 text-primary" />
-                    <span>Air Conditioned</span>
+                    <span className="font-medium text-slate-800">Air Conditioned</span>
                   </label>
 
-                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={wifi}
@@ -653,10 +847,10 @@ export const RegisterLibrary: React.FC = () => {
                       className="rounded text-primary"
                     />
                     <Wifi className="w-4 h-4 text-teal" />
-                    <span>High-Speed WiFi</span>
+                    <span className="font-medium text-slate-800">High-Speed WiFi</span>
                   </label>
 
-                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={powerOutlets}
@@ -664,10 +858,10 @@ export const RegisterLibrary: React.FC = () => {
                       className="rounded text-primary"
                     />
                     <Zap className="w-4 h-4 text-amber-500" />
-                    <span>Power Sockets</span>
+                    <span className="font-medium text-slate-800">Power Sockets</span>
                   </label>
 
-                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={cctv}
@@ -675,10 +869,10 @@ export const RegisterLibrary: React.FC = () => {
                       className="rounded text-primary"
                     />
                     <Shield className="w-4 h-4 text-slate-600" />
-                    <span>24/7 CCTV Security</span>
+                    <span className="font-medium text-slate-800">24/7 CCTV Security</span>
                   </label>
 
-                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+                  <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/70 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={lockers}
@@ -686,37 +880,241 @@ export const RegisterLibrary: React.FC = () => {
                       className="rounded text-primary"
                     />
                     <Lock className="w-4 h-4 text-slate-600" />
-                    <span>Bag Lockers</span>
+                    <span className="font-medium text-slate-800">Bag Lockers</span>
                   </label>
                 </div>
               </div>
 
-              <div className="pt-3 border-t border-slate-100">
-                <span className="text-xs font-semibold text-slate-700 block mb-2">Admission Pricing:</span>
-                <div className="flex gap-3">
+              {/* Admission Pricing Mode */}
+              <div className="pt-3 border-t border-slate-100 space-y-3">
+                <span className="text-xs font-semibold text-slate-700 block">
+                  Admission Pricing Structure:
+                </span>
+                <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setIsFree(true)}
-                    className={`flex-1 p-3 rounded-xl border text-xs font-bold transition-all ${
+                    className={`p-3.5 rounded-2xl border text-left transition-all relative ${
                       isFree
-                        ? 'border-emerald-500 bg-emerald-50 text-emerald-800'
-                        : 'border-slate-200 bg-white text-slate-600'
+                        ? 'border-emerald-500 bg-emerald-50/70 shadow-sm ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
                   >
-                    Free Admission
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-bold ${isFree ? 'text-emerald-800' : 'text-slate-800'}`}>
+                        Free Admission
+                      </span>
+                      {isFree && <CheckCircle2 className="w-4 h-4 text-emerald-600" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      100% complimentary access for all registered students (all 4 slots ₹0).
+                    </p>
                   </button>
+
                   <button
                     type="button"
                     onClick={() => setIsFree(false)}
-                    className={`flex-1 p-3 rounded-xl border text-xs font-bold transition-all ${
+                    className={`p-3.5 rounded-2xl border text-left transition-all relative ${
                       !isFree
-                        ? 'border-primary bg-primary/10 text-primary'
-                        : 'border-slate-200 bg-white text-slate-600'
+                        ? 'border-primary bg-primary/5 shadow-sm ring-2 ring-primary/20'
+                        : 'border-slate-200 bg-white hover:bg-slate-50 text-slate-600'
                     }`}
                   >
-                    Paid / Slot Fees
+                    <div className="flex items-center justify-between mb-1">
+                      <span className={`text-xs font-bold ${!isFree ? 'text-primary' : 'text-slate-800'}`}>
+                        Paid / Slot Fees
+                      </span>
+                      {!isFree && <CheckCircle2 className="w-4 h-4 text-primary" />}
+                    </div>
+                    <p className="text-[11px] text-slate-500 leading-tight">
+                      Configure individual admission fees for each operating study window.
+                    </p>
                   </button>
                 </div>
+
+                {/* If Free: Informational Banner */}
+                {isFree ? (
+                  <div className="p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200/80 flex items-start gap-2.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                    <div>
+                      <p className="text-xs font-semibold text-emerald-900">
+                        Complimentary Public Access
+                      </p>
+                      <p className="text-[11px] text-emerald-700 mt-0.5">
+                        Students can reserve seats during any morning, afternoon, evening, or late-night slot with zero charges (₹0).
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  /* If Paid: Slot Pricing Configurator */
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3 animate-fade-in">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <h4 className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+                          <Clock className="w-3.5 h-3.5 text-primary" /> Operating Slot Rates (₹ per pass)
+                        </h4>
+                        <p className="text-[11px] text-slate-500">
+                          Set the fee charged for each scheduled study slot:
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-[10px]">
+                        <span className="text-slate-400 font-medium">Presets:</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMorningPrice(50);
+                            setAfternoonPrice(60);
+                            setEveningPrice(50);
+                            setNightPrice(40);
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-primary font-medium transition-colors"
+                        >
+                          Standard
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMorningPrice(30);
+                            setAfternoonPrice(40);
+                            setEveningPrice(30);
+                            setNightPrice(20);
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-primary font-medium transition-colors"
+                        >
+                          Budget
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMorningPrice(80);
+                            setAfternoonPrice(100);
+                            setEveningPrice(80);
+                            setNightPrice(60);
+                          }}
+                          className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-slate-700 hover:border-primary font-medium transition-colors"
+                        >
+                          Premium
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                      {/* Morning Slot */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            🌅 Morning Slot
+                          </span>
+                          <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200/50">
+                            06:00 – 12:00
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-600">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5}
+                            value={morningPrice}
+                            onChange={(e) => setMorningPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full text-xs font-bold py-1.5 px-2.5 rounded-lg border border-slate-200 focus:border-primary outline-none"
+                            placeholder="50"
+                          />
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap">/ pass</span>
+                        </div>
+                      </div>
+
+                      {/* Afternoon Slot */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            ☀️ Afternoon Slot
+                          </span>
+                          <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200/50">
+                            12:00 – 17:00
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-600">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5}
+                            value={afternoonPrice}
+                            onChange={(e) => setAfternoonPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full text-xs font-bold py-1.5 px-2.5 rounded-lg border border-slate-200 focus:border-primary outline-none"
+                            placeholder="60"
+                          />
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap">/ pass</span>
+                        </div>
+                      </div>
+
+                      {/* Evening Slot */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            🌆 Evening Slot
+                          </span>
+                          <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200/50">
+                            17:00 – 21:00
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-600">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5}
+                            value={eveningPrice}
+                            onChange={(e) => setEveningPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full text-xs font-bold py-1.5 px-2.5 rounded-lg border border-slate-200 focus:border-primary outline-none"
+                            placeholder="50"
+                          />
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap">/ pass</span>
+                        </div>
+                      </div>
+
+                      {/* Late Night Slot */}
+                      <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2 shadow-xs">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5">
+                            🌙 Late Night Slot
+                          </span>
+                          <span className="text-[10px] font-mono font-semibold px-2 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200/50">
+                            21:00 – 23:59
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-slate-600">₹</span>
+                          <input
+                            type="number"
+                            min={0}
+                            step={5}
+                            value={nightPrice}
+                            onChange={(e) => setNightPrice(Math.max(0, parseInt(e.target.value) || 0))}
+                            className="w-full text-xs font-bold py-1.5 px-2.5 rounded-lg border border-slate-200 focus:border-primary outline-none"
+                            placeholder="40"
+                          />
+                          <span className="text-[11px] text-slate-400 whitespace-nowrap">/ pass</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Summary pill */}
+                    <div className="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between text-xs">
+                      <span className="text-slate-500 font-medium">Slot Fees Summary:</span>
+                      <div className="flex items-center gap-2 font-mono font-bold text-slate-800 text-[11px]">
+                        <span>🌅 ₹{morningPrice}</span>
+                        <span className="text-slate-300">•</span>
+                        <span>☀️ ₹{afternoonPrice}</span>
+                        <span className="text-slate-300">•</span>
+                        <span>🌆 ₹{eveningPrice}</span>
+                        <span className="text-slate-300">•</span>
+                        <span>🌙 ₹{nightPrice}</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

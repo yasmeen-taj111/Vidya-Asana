@@ -44,9 +44,10 @@ import {
   deleteStoredSlotForLibrary,
   getStoredBookingsForLibrary,
   getStoredAnalyticsForLibrary,
+  checkBookingRateLimit,
 } from './storage';
 import { useUiStore } from '../store/uiStore';
-import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell } from '../api/types';
+import { SeatSuggestion, Booking, TimeSlot, Seat, WaitlistEntry, FloorGrid, Library, GridCell, UserPreferences } from '../api/types';
 import { generateChatResponse } from '../chat/chatEngine';
 import { mockSocketInstance } from '../realtime/socket';
 
@@ -153,6 +154,12 @@ export const handlers = [
           powerOutlets: boolean;
         };
         isFree: boolean;
+        slotPricing?: {
+          morningPrice?: number;
+          afternoonPrice?: number;
+          eveningPrice?: number;
+          nightPrice?: number;
+        };
       };
     };
 
@@ -202,9 +209,53 @@ export const handlers = [
     };
     saveStoredLibrary(newLib);
 
-    // Initialize fresh empty floors and slots for the new library
+    // Initialize fresh empty floors and operating slots with configured prices for the new library
     saveStoredFloorsForLibrary(libId, {});
-    saveStoredSlotsForLibrary(libId, []);
+    const slotPricing = body.library?.slotPricing || {};
+    const isFree = !!body.library?.isFree;
+    const initialSlots: TimeSlot[] = [
+      {
+        id: `slot-${libId}-morning`,
+        libraryId: libId,
+        name: 'MORNING',
+        startTime: '06:00',
+        endTime: '12:00',
+        isFree: isFree || slotPricing.morningPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.morningPrice !== undefined ? slotPricing.morningPrice * 100 : 5000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-afternoon`,
+        libraryId: libId,
+        name: 'AFTERNOON',
+        startTime: '12:00',
+        endTime: '17:00',
+        isFree: isFree || slotPricing.afternoonPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.afternoonPrice !== undefined ? slotPricing.afternoonPrice * 100 : 6000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-evening`,
+        libraryId: libId,
+        name: 'EVENING',
+        startTime: '17:00',
+        endTime: '21:00',
+        isFree: isFree || slotPricing.eveningPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.eveningPrice !== undefined ? slotPricing.eveningPrice * 100 : 5000),
+        isActive: true,
+      },
+      {
+        id: `slot-${libId}-night`,
+        libraryId: libId,
+        name: 'NIGHT',
+        startTime: '21:00',
+        endTime: '23:59',
+        isFree: isFree || slotPricing.nightPrice === 0,
+        pricePaise: isFree ? 0 : (slotPricing.nightPrice !== undefined ? slotPricing.nightPrice * 100 : 4000),
+        isActive: true,
+      },
+    ];
+    saveStoredSlotsForLibrary(libId, initialSlots);
 
     // Welcome notification for the newly registered library admin
     addStoredNotification(newAdmin.id, {
@@ -246,11 +297,14 @@ export const handlers = [
   http.get(`${BASE}/owner/libraries`, ({ request }) => {
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
+    const isFree = url.searchParams.get('isFree');
     const q = url.searchParams.get('q');
 
     const libraries = getStoredLibraries();
     let filtered = [...libraries];
     if (status) filtered = filtered.filter((l) => l.status === status);
+    if (isFree === 'true') filtered = filtered.filter((l) => l.isFree);
+    if (isFree === 'false') filtered = filtered.filter((l) => !l.isFree);
     if (q) {
       const qLower = q.toLowerCase();
       filtered = filtered.filter(
@@ -725,6 +779,8 @@ export const handlers = [
     }
     if (isFree === 'true') {
       approved = approved.filter((l) => l.isFree);
+    } else if (isFree === 'false') {
+      approved = approved.filter((l) => !l.isFree);
     }
     if (seatType) {
       approved = approved.filter((l) => ((l.seatCounts as any) || {})[seatType] > 0);
@@ -737,12 +793,21 @@ export const handlers = [
     });
   }),
 
-  http.get(`${BASE}/recommendations/libraries`, () => {
+  http.get(`${BASE}/recommendations/libraries`, ({ request }) => {
+    const url = new URL(request.url);
+    const isFree = url.searchParams.get('isFree');
     const libraries = getStoredLibraries();
-    const scored = libraries
-      .filter((l) => l.status !== 'REJECTED')
-      .map((l) => ({ ...l, matchScore: l.id === 'lib-1' ? 96 : 88 }));
-    return HttpResponse.json({ success: true, data: scored });
+    let scored = libraries.filter((l) => l.status !== 'REJECTED');
+    if (isFree === 'true') {
+      scored = scored.filter((l) => l.isFree);
+    } else if (isFree === 'false') {
+      scored = scored.filter((l) => !l.isFree);
+    }
+    const mapped = scored.map((l) => ({
+      ...l,
+      matchScore: l.id === 'lib-1' ? 96 : l.id === 'lib-4' ? 94 : 88,
+    }));
+    return HttpResponse.json({ success: true, data: mapped });
   }),
 
   http.get(`${BASE}/libraries/:id`, ({ params }) => {
@@ -803,43 +868,122 @@ export const handlers = [
     return HttpResponse.json({ success: true, data: clonedGrid });
   }),
 
-  http.post(`${BASE}/libraries/:id/suggest-seats`, async () => {
-    const fl1Seats = mockFloorGrids['fl-1']?.cells
-      .filter((c) => c.type === 'SEAT' && c.seat)
-      .map((c) => c.seat!) || [];
-    const fl2Seats = mockFloorGrids['fl-2']?.cells
-      .filter((c) => c.type === 'SEAT' && c.seat)
-      .map((c) => c.seat!) || [];
+  http.post(`${BASE}/libraries/:id/suggest-seats`, async ({ params, request }) => {
+    const libraryId = params.id as string;
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch {}
 
-    const seat1 = fl1Seats.find((s) => s.label === 'F1-A4') || fl1Seats[0];
-    const seat2 = fl1Seats.find((s) => s.label === 'F1-B1') || fl1Seats[1] || fl1Seats[0];
-    const seat3 = fl2Seats.find((s) => s.label === 'F2-A1') || fl2Seats[0] || seat1;
+    const currentUser = resolveCurrentUser(request);
+    const userId = currentUser?.id || 'usr-4';
+    const savedPrefs = getUserPreferences(userId);
+    const prefs: UserPreferences = {
+      ...savedPrefs,
+      ...(body.preferences || {}),
+    };
 
-    const suggestions: SeatSuggestion[] = [];
-    if (seat1) {
-      suggestions.push({
-        seat: seat1,
-        floorLabel: 'Floor 1 - Main Hall',
-        score: 95,
-        reasons: ['Quiet window desk', 'Near power outlet', 'Ergonomic high-back chair'],
+    const floorsObj = getStoredFloorsForLibrary(libraryId);
+    const allBookings = getStoredBookings();
+    const date = body.date;
+    const slotId = body.slotId;
+
+    const bookedSeatIds = new Set(
+      allBookings
+        .filter(
+          (b) =>
+            b.date === date &&
+            b.slot.id === slotId &&
+            (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+        )
+        .map((b) => b.seat.id)
+    );
+
+    const candidates: { seat: Seat; floorLabel: string }[] = [];
+    Object.values(floorsObj).forEach((grid) => {
+      grid.cells.forEach((cell) => {
+        if (cell.type === 'SEAT' && cell.seat && cell.seat.isActive && !bookedSeatIds.has(cell.seat.id)) {
+          candidates.push({
+            seat: cell.seat,
+            floorLabel: grid.label,
+          });
+        }
+      });
+    });
+
+    // Fallback if library floors empty
+    if (candidates.length === 0) {
+      Object.values(mockFloorGrids).forEach((grid) => {
+        grid.cells.forEach((cell) => {
+          if (cell.type === 'SEAT' && cell.seat && cell.seat.isActive && !bookedSeatIds.has(cell.seat.id)) {
+            candidates.push({
+              seat: cell.seat,
+              floorLabel: grid.label,
+            });
+          }
+        });
       });
     }
-    if (seat2) {
-      suggestions.push({
-        seat: seat2,
-        floorLabel: 'Floor 1 - Main Hall',
-        score: 88,
-        reasons: ['Direct natural sunlight', 'Dedicated electrical socket'],
-      });
-    }
-    if (seat3) {
-      suggestions.push({
-        seat: seat3,
-        floorLabel: 'Floor 2 - Silent Research Zone',
-        score: 85,
-        reasons: ['Silent study zone', 'High-speed LAN port'],
-      });
-    }
+
+    // Score candidates against user preferences
+    const scoredList: SeatSuggestion[] = candidates.map(({ seat, floorLabel }) => {
+      let score = 0;
+      const reasons: string[] = [];
+
+      // Seat Type match: 40 pts
+      if (prefs.seatType && seat.seatType === prefs.seatType) {
+        score += 40;
+        reasons.push(`Matches desired ${seat.seatType.toLowerCase()} desk`);
+      } else if (!prefs.seatType) {
+        score += 30;
+      } else {
+        score += 15;
+      }
+
+      // Window: 20 pts
+      if (seat.attributes.window) {
+        if (prefs.window) {
+          score += 20;
+          reasons.push('Direct natural light & window desk');
+        } else {
+          score += 10;
+        }
+      }
+
+      // Power Outlet: 20 pts
+      if (seat.attributes.powerOutlet) {
+        if (prefs.powerOutlet) {
+          score += 20;
+          reasons.push('Dedicated laptop power socket');
+        } else {
+          score += 10;
+        }
+      }
+
+      // Quiet Zone: 20 pts
+      if (seat.attributes.quietZone) {
+        if (prefs.quietZone) {
+          score += 20;
+          reasons.push('Strict silent pod & quiet zone');
+        } else {
+          score += 10;
+        }
+      }
+
+      if (reasons.length === 0) {
+        reasons.push('Quiet ergonomic study space');
+      }
+
+      return {
+        seat,
+        floorLabel,
+        score: Math.min(100, Math.max(20, score)),
+        reasons,
+      };
+    });
+
+    scoredList.sort((a, b) => b.score - a.score);
+    const suggestions = scoredList.slice(0, 5);
 
     return HttpResponse.json({ success: true, data: { suggestions } });
   }),
@@ -849,6 +993,54 @@ export const handlers = [
     const { alwaysFailNext } = useUiStore.getState();
     const body = (await request.json()) as { libraryId: string; seatId: string; slotId?: string; startTime?: string; endTime?: string; date: string };
     const currentUser = resolveCurrentUser(request) || getStoredUsers().find((u) => u.id === 'usr-4') || getStoredUsers()[0];
+
+    // Rate Limiting Invariant: Max 10 attempts per minute per user
+    const rateLimit = checkBookingRateLimit(currentUser.id, 10, 60000);
+    if (!rateLimit.allowed) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many booking attempts. Please wait a moment before trying again.',
+            details: { retryAfter: rateLimit.retryAfter },
+          },
+        },
+        {
+          status: 429,
+          headers: {
+            'Retry-After': String(rateLimit.retryAfter || 60),
+            'RateLimit-Limit': '10',
+            'RateLimit-Remaining': '0',
+          },
+        }
+      );
+    }
+
+    // Waitlist Hold Invariant: Held seat cannot be reserved by another user
+    const waitlist = getStoredWaitlist();
+    const heldByOther = waitlist.find(
+      (w) =>
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        w.status === 'NOTIFIED' &&
+        w.userId !== currentUser.id &&
+        (!w.claimExpiresAt || new Date(w.claimExpiresAt) > new Date())
+    );
+    if (heldByOther) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'SEAT_HELD_FOR_WAITLIST',
+            message: 'This seat is currently held for a waitlisted student.',
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     const allBookings = getStoredBookings();
 
     // Prevent negative booking (past time on today)
@@ -1031,12 +1223,38 @@ export const handlers = [
       userId: currentUser.id,
       pricePaise: slot.pricePaise,
       paymentStatus: slot.isFree ? 'FREE' : 'PAID',
-      graceUntil: `${body.date}T${slot.startTime}:00.000Z`,
+      graceUntil: (() => {
+        const [year, month, day] = body.date.split('-').map(Number);
+        const [startH, startM] = slot.startTime.split(':').map(Number);
+        const [endH, endM] = slot.endTime.split(':').map(Number);
+        const slotStartLocal = new Date(year, month - 1, day, startH, startM, 0, 0);
+        const slotEndLocal = new Date(year, month - 1, day, endH, endM, 0, 0);
+        const now = new Date();
+        const isOngoing = slotStartLocal <= now && now < slotEndLocal;
+        if (isOngoing) {
+          const graceFromNow = new Date(now.getTime() + 15 * 60 * 1000);
+          return (graceFromNow < slotEndLocal ? graceFromNow : slotEndLocal).toISOString();
+        }
+        return new Date(slotStartLocal.getTime() + 15 * 60 * 1000).toISOString();
+      })(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),
     };
 
     saveStoredBooking(newBooking);
+
+    // Atomicity: If user held a waitlist spot for this seat and slot, transition status to CLAIMED
+    const wlEntry = waitlist.find(
+      (w) =>
+        w.userId === currentUser.id &&
+        w.seat.id === body.seatId &&
+        w.slot.id === body.slotId &&
+        w.date === body.date &&
+        (w.status === 'NOTIFIED' || w.status === 'WAITING')
+    );
+    if (wlEntry) {
+      updateStoredWaitlistEntry(wlEntry.id, { status: 'CLAIMED' });
+    }
 
     // Initial booking confirmation notification
     addStoredNotification(currentUser.id, {
@@ -1194,20 +1412,47 @@ export const handlers = [
         );
       }
 
+      addStoredNotification(bk.userId || 'usr-4', {
+        id: `ntf-${Date.now()}`,
+        type: 'BOOKING_CANCELLED',
+        title: 'Booking Cancelled & Seat Released',
+        body: `Your booking for seat ${bk.seat.label} at ${bk.libraryName} was cancelled as requested and the seat has been released.`,
+        isRead: false,
+        data: { bookingId: bk.id },
+        createdAt: new Date().toISOString(),
+      });
+      mockSocketInstance.simulateBookingReleased(
+        bk.id,
+        'CANCELLED',
+        'Your booking was cancelled as you indicated you are not coming.'
+      );
+      mockSocketInstance.simulateSeatUpdate(bk.libraryId, bk.seat.id, 'AVAILABLE', bk.date, bk.slot.id);
+
       return HttpResponse.json({ success: true, data: updated });
     }
 
     if (bk.arrivalConfirmed) {
       return HttpResponse.json(
-        { success: false, error: { code: 'BAD_REQUEST', message: 'Grace extension already utilized once.' } },
+        { success: false, error: { code: 'BAD_REQUEST', message: 'Arrival buffer already utilized once.' } },
         { status: 409 }
       );
     }
 
     const updated = updateStoredBooking(params.id as string, {
       arrivalConfirmed: true,
-      graceUntil: new Date(new Date(bk.graceUntil).getTime() + 30 * 60 * 1000).toISOString(),
+      graceUntil: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
     });
+
+    addStoredNotification(bk.userId || 'usr-4', {
+      id: `ntf-${Date.now()}`,
+      type: 'GRACE_EXTENDED',
+      title: '15-Minute Buffer Granted',
+      body: `You have 15 minutes to arrive and check in for seat ${bk.seat.label} at ${bk.libraryName}. If not checked in within 15 minutes, your slot will be cancelled automatically.`,
+      isRead: false,
+      data: { bookingId: bk.id },
+      createdAt: new Date().toISOString(),
+    });
+
     return HttpResponse.json({ success: true, data: updated });
   }),
 
@@ -1296,9 +1541,49 @@ export const handlers = [
   http.post(`${BASE}/waitlist/:id/claim`, ({ params, request }) => {
     const currentUser = resolveCurrentUser(request);
     const userId = currentUser?.id || 'usr-4';
+
+    // Rate Limiting Invariant
+    const rateLimit = checkBookingRateLimit(userId, 10, 60000);
+    if (!rateLimit.allowed) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'RATE_LIMITED',
+            message: 'Too many booking attempts. Please wait a moment before trying again.',
+            details: { retryAfter: rateLimit.retryAfter },
+          },
+        },
+        { status: 429, headers: { 'Retry-After': String(rateLimit.retryAfter || 60) } }
+      );
+    }
+
     const list = getUserWaitlist(userId);
     const item = list.find((w) => w.id === params.id);
     if (!item) return HttpResponse.json({ success: false, error: { code: 'NOT_FOUND', message: 'Waitlist entry not found' } }, { status: 404 });
+
+    // Consistency Invariant: Ensure seat is not already booked
+    const allBookings = getStoredBookings();
+    const existing = allBookings.find(
+      (b) =>
+        b.seat.id === item.seat.id &&
+        b.slot.id === item.slot.id &&
+        b.date === item.date &&
+        (b.status === 'CONFIRMED' || b.status === 'CHECKED_IN')
+    );
+    if (existing) {
+      return HttpResponse.json(
+        {
+          success: false,
+          error: {
+            code: 'SEAT_UNAVAILABLE',
+            message: 'This seat was just claimed by another student.',
+          },
+        },
+        { status: 409 }
+      );
+    }
+
     updateStoredWaitlistEntry(params.id as string, { status: 'CLAIMED' });
 
     const newBooking: Booking = {
@@ -1315,7 +1600,11 @@ export const handlers = [
       userId,
       pricePaise: item.slot.pricePaise,
       paymentStatus: item.slot.isFree ? 'FREE' : 'PAID',
-      graceUntil: `${item.date}T${item.slot.startTime}:00.000Z`,
+      graceUntil: (() => {
+        const [startH, startM] = item.slot.startTime.split(':').map(Number);
+        const slotStartMs = new Date(`${item.date}T${String(startH).padStart(2, '0')}:${String(startM).padStart(2, '0')}:00`).getTime();
+        return new Date(slotStartMs + 15 * 60 * 1000).toISOString();
+      })(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),
     };

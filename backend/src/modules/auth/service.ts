@@ -103,6 +103,46 @@ export const authService = {
       ]
     );
 
+    // Initialize 4 operating time slots based on library admission pricing
+    const slotPricing = libData.slotPricing || {};
+    const slots = [
+      {
+        name: 'MORNING',
+        startTime: '06:00',
+        endTime: '12:00',
+        isFree: !!libData.isFree || slotPricing.morningPrice === 0,
+        pricePaise: libData.isFree ? 0 : (slotPricing.morningPrice !== undefined ? slotPricing.morningPrice * 100 : 5000),
+      },
+      {
+        name: 'AFTERNOON',
+        startTime: '12:00',
+        endTime: '17:00',
+        isFree: !!libData.isFree || slotPricing.afternoonPrice === 0,
+        pricePaise: libData.isFree ? 0 : (slotPricing.afternoonPrice !== undefined ? slotPricing.afternoonPrice * 100 : 6000),
+      },
+      {
+        name: 'EVENING',
+        startTime: '17:00',
+        endTime: '21:00',
+        isFree: !!libData.isFree || slotPricing.eveningPrice === 0,
+        pricePaise: libData.isFree ? 0 : (slotPricing.eveningPrice !== undefined ? slotPricing.eveningPrice * 100 : 5000),
+      },
+      {
+        name: 'NIGHT',
+        startTime: '21:00',
+        endTime: '23:59',
+        isFree: !!libData.isFree || slotPricing.nightPrice === 0,
+        pricePaise: libData.isFree ? 0 : (slotPricing.nightPrice !== undefined ? slotPricing.nightPrice * 100 : 4000),
+      },
+    ];
+
+    for (const slot of slots) {
+      await execute(
+        'INSERT INTO time_slots (id, library_id, name, start_time, end_time, is_free, price_paise, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, 1)',
+        [generateUUID(), libId, slot.name, slot.startTime, slot.endTime, slot.isFree ? 1 : 0, slot.pricePaise]
+      );
+    }
+
     const user = {
       id: userId,
       name: adminData.name,

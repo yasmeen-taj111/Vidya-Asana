@@ -12,7 +12,9 @@ import {
   Booking,
   WaitlistEntry,
   UnbookableInterval,
+  UserPreferences,
 } from '../../api/types';
+import { studyApi } from '../../api/study';
 import { SeatGrid } from '../../components/SeatGrid/SeatGrid';
 import { ConflictModal } from '../../components/ConflictModal';
 import { QRCard } from '../../components/QRCard';
@@ -77,12 +79,40 @@ export const Book: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [loadingGrid, setLoadingGrid] = useState(false);
 
+  const [userPreferences, setUserPreferences] = useState<UserPreferences | null>(null);
+
   // Available dates: Next 14 days per PRD
   const availableDates = Array.from({ length: 14 }).map((_, i) =>
     format(addDays(new Date(), i), 'yyyy-MM-dd')
   );
 
-  // Load library metadata, slots, floors
+  const isSlotPastToday = (slot: TimeSlot) => {
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (selectedDate !== todayStr) return false;
+    const now = new Date();
+    const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+    return slot.endTime <= curTime;
+  };
+
+  const findPreferredSlot = (slotList: TimeSlot[], dateStr: string, prefs: UserPreferences | null): TimeSlot | null => {
+    if (!prefs?.preferredSlot || slotList.length === 0) return null;
+    const preferredName = prefs.preferredSlot.toUpperCase();
+    const matched = slotList.find((s) => s.name.toUpperCase() === preferredName);
+    if (!matched) return null;
+
+    const todayStr = format(new Date(), 'yyyy-MM-dd');
+    if (dateStr === todayStr) {
+      const now = new Date();
+      const curTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      if (matched.endTime > curTime) {
+        return matched;
+      }
+      return null;
+    }
+    return matched;
+  };
+
+  // Load library metadata, slots, floors, and user preferences
   useEffect(() => {
     if (!libraryId) return;
 
@@ -91,20 +121,33 @@ export const Book: React.FC = () => {
       librariesApi.getSlots(libraryId),
       librariesApi.getFloors(libraryId),
       librariesApi.getIntervals(libraryId),
+      studyApi.getPreferences().catch(() => null),
     ])
-      .then(([lib, slotList, floorList, intervalList]) => {
+      .then(([lib, slotList, floorList, intervalList, prefs]) => {
         setLibrary(lib);
         const finalSlots = slotList && slotList.length > 0 ? slotList : [];
         setSlots(finalSlots);
         setIntervals(intervalList || []);
+        if (prefs) setUserPreferences(prefs);
         if (finalSlots.length > 0) {
           setSelectedSlot(finalSlots[0]);
         }
+
         setFloors(floorList);
         if (floorList.length > 0) setActiveFloorId(floorList[0].id);
       })
       .catch((err) => console.error(err));
   }, [libraryId]);
+
+  // Synchronize slot auto-detection when userPreferences, slots, or date change
+  useEffect(() => {
+    if (slots.length > 0 && userPreferences?.preferredSlot) {
+      const prefSlot = findPreferredSlot(slots, selectedDate, userPreferences);
+      if (prefSlot && selectedSlot?.id !== prefSlot.id) {
+        setSelectedSlot(prefSlot);
+      }
+    }
+  }, [userPreferences, slots, selectedDate]);
 
   // Load user's existing bookings and waitlists to prevent conflicts and show active status
   const loadUserWaitlist = () => {
@@ -176,7 +219,7 @@ export const Book: React.FC = () => {
       const sugData = await librariesApi.suggestSeats(libraryId, {
         date: selectedDate,
         slotId: selectedSlot?.id || 'dynamic',
-        preferences: {},
+        preferences: userPreferences || {},
       });
       setSuggestions(sugData);
     } catch (err) {
@@ -262,6 +305,12 @@ export const Book: React.FC = () => {
           setConflictingBookingId(err.details?.conflictingBookingId);
           setConflictAlternatives([]);
           setShowConflictModal(true);
+        } else if (err.code === 'RATE_LIMITED') {
+          addToast({
+            type: 'error',
+            title: 'Rate Limit Reached',
+            message: err.message || 'Too many reservation attempts. Please wait a moment before trying again.',
+          });
         } else {
           addToast({
             type: 'error',
@@ -386,6 +435,36 @@ export const Book: React.FC = () => {
       {/* Step 2: Suggested Seats + Interactive Floor Grid */}
       {step === 2 && (
         <div className="space-y-6 animate-fade-in">
+          {/* Active Reservation Slot & Preference Context Bar */}
+          <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-100 shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-1.5 font-bold text-slate-800">
+                <Calendar className="w-4 h-4 text-primary" />
+                <span>{format(new Date(selectedDate), 'EEE, d MMM yyyy')}</span>
+              </div>
+              <span className="text-slate-300">•</span>
+              <div className="flex items-center gap-1.5 font-bold text-navy font-mono">
+                <Clock className="w-4 h-4 text-primary" />
+                <span>{selectedSlot?.name} ({selectedSlot?.startTime} – {selectedSlot?.endTime})</span>
+              </div>
+              {userPreferences?.preferredSlot?.toUpperCase() === selectedSlot?.name.toUpperCase() ? (
+                <span className="bg-primary/10 text-primary border border-primary/20 font-bold px-2.5 py-0.5 rounded-full text-[10px] flex items-center gap-1">
+                  <Sparkles className="w-3 h-3 text-primary animate-pulse" /> Auto-detected from preferences
+                </span>
+              ) : (
+                <span className="bg-slate-100 text-slate-600 font-semibold px-2 py-0.5 rounded-full text-[10px]">
+                  Custom Slot
+                </span>
+              )}
+            </div>
+            <button
+              onClick={() => setStep(1)}
+              className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-primary font-bold text-xs flex items-center gap-1 transition-all"
+            >
+              Change Date or Slot →
+            </button>
+          </div>
+
           {/* Top Recommendations Strip */}
           {suggestions.length > 0 && (
             <div className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm space-y-3">
@@ -393,7 +472,11 @@ export const Book: React.FC = () => {
                 <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-accent" /> Recommended Best Desks for You
                 </span>
-                <span className="text-[11px] text-slate-400">Ranked by algorithm</span>
+                <span className="text-[11px] text-slate-400">
+                  {userPreferences?.seatType
+                    ? `Tailored to your ${userPreferences.seatType.toLowerCase()} desk & environment preferences`
+                    : 'Ranked by algorithm'}
+                </span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

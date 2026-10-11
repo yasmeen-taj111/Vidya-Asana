@@ -32,6 +32,8 @@ discoveryRouter.get('/libraries', async (req, res, next) => {
     }
     if (isFree === 'true') {
       sql += ' AND l.is_free = 1';
+    } else if (isFree === 'false') {
+      sql += ' AND l.is_free = 0';
     }
 
     const rows = await query(sql, params);
@@ -59,8 +61,8 @@ discoveryRouter.get('/libraries', async (req, res, next) => {
 // GET /recommendations/libraries
 discoveryRouter.get('/recommendations/libraries', optionalAuth, async (req, res, next) => {
   try {
-    const { lat, lng } = req.query;
-    const rows = await query(`
+    const { lat, lng, isFree } = req.query;
+    let recSql = `
       SELECT l.*,
         (SELECT COUNT(*) FROM floors f WHERE f.library_id = l.id) as floor_count,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.is_active = 1) as total_seats,
@@ -69,7 +71,13 @@ discoveryRouter.get('/recommendations/libraries', optionalAuth, async (req, res,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'ACCESSIBLE' AND s.is_active = 1) as count_accessible,
         (SELECT COUNT(*) FROM seats s WHERE s.library_id = l.id AND s.seat_type = 'COMPUTER' AND s.is_active = 1) as count_computer
       FROM libraries l WHERE l.status != 'REJECTED'
-    `);
+    `;
+    if (isFree === 'true') {
+      recSql += ' AND l.is_free = 1';
+    } else if (isFree === 'false') {
+      recSql += ' AND l.is_free = 0';
+    }
+    const rows = await query(recSql);
 
     const libraries = rows.map(mapLibraryRow);
     const uLat = lat ? parseFloat(lat as string) : 12.9716;
@@ -289,6 +297,23 @@ discoveryRouter.post('/libraries/:id/suggest-seats', optionalAuth, async (req, r
     const { date, slotId, preferences = {} } = req.body;
     const libraryId = req.params.id;
 
+    let userPrefs = { ...preferences };
+    if (Object.keys(userPrefs).length === 0 && req.user?.id) {
+      const prefRows = await query<any[]>(
+        `SELECT * FROM user_preferences WHERE user_id = ?`,
+        [req.user.id]
+      );
+      if (prefRows.length > 0) {
+        userPrefs = {
+          seatType: prefRows[0].seat_type,
+          window: Boolean(prefRows[0].window),
+          powerOutlet: Boolean(prefRows[0].power_outlet),
+          quietZone: Boolean(prefRows[0].quiet_zone),
+          preferredSlot: prefRows[0].preferred_slot,
+        };
+      }
+    }
+
     // Get available seats for that date & slot
     const seats = await query(`
       SELECT s.*, f.label as floor_label FROM seats s
@@ -314,7 +339,7 @@ discoveryRouter.post('/libraries/:id/suggest-seats', optionalAuth, async (req, r
           nearDoor: !!s.attr_near_door,
         },
       };
-      const result = scoreSeat(candidate, preferences);
+      const result = scoreSeat(candidate, userPrefs);
       return {
         seat: candidate,
         floorLabel: s.floor_label,

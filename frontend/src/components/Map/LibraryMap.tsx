@@ -196,7 +196,7 @@ export const LibraryMap: React.FC<LibraryMapProps> = ({
               }}
             >
               <Popup offset={[0, -64]}>
-                <div className="p-1 space-y-2 text-xs min-w-[200px]">
+                <div className="p-1 space-y-2 text-xs min-w-[210px]">
                   <div>
                     <h4 className="font-black text-slate-900 text-sm">{lib.name}</h4>
                     <p className="text-slate-600 text-[11px] mt-0.5">{lib.address}</p>
@@ -209,15 +209,15 @@ export const LibraryMap: React.FC<LibraryMapProps> = ({
                     <span className="text-[11px] text-slate-600">
                       {lib.distanceKm ? `${lib.distanceKm.toFixed(1)} km away` : lib.city}
                     </span>
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
-                        lib.isFree
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-primary/10 text-primary'
-                      }`}
-                    >
-                      {lib.isFree ? 'Free Admission' : 'Paid Slots'}
-                    </span>
+                    {lib.isFree ? (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        🟢 Free Admission
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
+                        💳 Paid Passes
+                      </span>
+                    )}
                   </div>
 
                   <Link

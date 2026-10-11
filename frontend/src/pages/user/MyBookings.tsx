@@ -8,6 +8,7 @@ import {
   CalendarCheck,
   QrCode,
   XCircle,
+  CheckCircle2,
   Calendar,
   Clock,
   MapPin,
@@ -27,26 +28,39 @@ export const MyBookings: React.FC = () => {
 
   const { addToast } = useUiStore();
 
-  const loadBookings = async () => {
+  const loadBookings = async (showLoading = false) => {
     try {
-      setLoading(true);
+      if (showLoading) setLoading(true);
       const res = await bookingsApi.getMyBookings();
       setBookings(res.bookings);
       if (selectedQRBooking) {
         const matching = res.bookings.find((b) => b.id === selectedQRBooking.booking.id);
         if (matching) {
-          setSelectedQRBooking((prev) => (prev ? { ...prev, booking: matching } : null));
+          if (matching.status === 'NO_SHOW' || matching.status === 'CANCELLED') {
+            setSelectedQRBooking(null);
+            addToast({
+              type: 'error',
+              title: 'Pass Expired',
+              message: 'This booking was cancelled because the 15-minute buffer expired.',
+            });
+          } else {
+            setSelectedQRBooking((prev) => (prev ? { ...prev, booking: matching } : null));
+          }
         }
       }
     } catch (err) {
       console.error(err);
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadBookings();
+    loadBookings(true);
+    const interval = setInterval(() => {
+      loadBookings(false);
+    }, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   useRealtimeBookings(loadBookings);
@@ -76,6 +90,32 @@ export const MyBookings: React.FC = () => {
         type: 'error',
         title: 'Cancel Failed',
         message: err.message || 'Could not cancel booking.',
+      });
+    }
+  };
+
+  const handleConfirmArrival = async (bookingId: string, coming: boolean) => {
+    try {
+      await bookingsApi.confirmArrival(bookingId, coming);
+      if (coming) {
+        addToast({
+          type: 'success',
+          title: '15-Minute Buffer Granted',
+          message: 'You have 15 minutes buffer wait time to arrive and scan your QR code.',
+        });
+      } else {
+        addToast({
+          type: 'info',
+          title: 'Slot Cancelled & Seat Released',
+          message: 'Your booking has been cancelled and seat released.',
+        });
+      }
+      loadBookings();
+    } catch (err: any) {
+      addToast({
+        type: 'error',
+        title: 'Action Failed',
+        message: err.message || 'Could not update arrival status.',
       });
     }
   };
@@ -168,6 +208,60 @@ export const MyBookings: React.FC = () => {
                     {b.date} • {b.slot.name} ({b.slot.startTime} – {b.slot.endTime})
                   </span>
                 </div>
+
+                {(() => {
+                  const now = new Date();
+                  const curH = String(now.getHours()).padStart(2, '0');
+                  const curM = String(now.getMinutes()).padStart(2, '0');
+                  const curTimeStr = `${curH}:${curM}`;
+                  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+                  const bDateStr = typeof b.date === 'string' ? b.date.substring(0, 10) : '';
+                  const isToday = bDateStr === todayStr;
+                  const isSlotOngoing = isToday && b.slot && b.slot.startTime <= curTimeStr && b.slot.endTime > curTimeStr;
+
+                  if (b.status === 'CONFIRMED' && isSlotOngoing && !b.checkedInAt) {
+                    if (!b.arrivalConfirmed) {
+                      return (
+                        <div className="mt-3 p-3 bg-amber-50 rounded-2xl border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-xs text-amber-900 font-semibold">
+                            <Clock className="w-4 h-4 text-amber-600 shrink-0 animate-bounce" />
+                            <span>Slot started! Are you coming or not for the slot?</span>
+                          </div>
+                          <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <button
+                              onClick={() => handleConfirmArrival(b.id, true)}
+                              className="flex-1 sm:flex-none px-3.5 py-1.5 bg-primary hover:bg-primary-hover text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-1 transition-all"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Yes (+15m)
+                            </button>
+                            <button
+                              onClick={() => handleConfirmArrival(b.id, false)}
+                              className="flex-1 sm:flex-none px-3.5 py-1.5 bg-white border border-rose-200 hover:bg-rose-50 text-rose-600 text-xs font-bold rounded-xl flex items-center justify-center gap-1 transition-all"
+                            >
+                              <XCircle className="w-3.5 h-3.5" />
+                              No, cancel
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      const graceExpiry = b.graceUntil ? new Date(b.graceUntil).getTime() : 0;
+                      const remainingSec = graceExpiry > 0 ? Math.max(0, Math.round((graceExpiry - Date.now()) / 1000)) : 0;
+                      const remMin = Math.floor(remainingSec / 60);
+                      const remSec = remainingSec % 60;
+                      return (
+                        <div className="mt-2 text-xs text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1.5 rounded-xl w-fit flex items-center gap-1.5 font-medium">
+                          <Clock className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
+                          <span>
+                            15-Minute Buffer Active ({remMin}:{remSec < 10 ? `0${remSec}` : remSec} left) — Please scan QR pass at entrance
+                          </span>
+                        </div>
+                      );
+                    }
+                  }
+                  return null;
+                })()}
               </div>
 
               <div className="flex items-center gap-2 w-full sm:w-auto pt-3 sm:pt-0 border-t sm:border-0 border-slate-100">
