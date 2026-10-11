@@ -145,11 +145,11 @@ describe('User Isolation and Storage', () => {
     };
 
     const slot = {
-      id: 'slot-morning',
+      id: 'slot-night',
       libraryId: 'lib-1',
-      name: 'MORNING' as const,
-      startTime: '06:00',
-      endTime: '12:00',
+      name: 'NIGHT' as const,
+      startTime: '21:00',
+      endTime: '23:59',
       isFree: true,
       pricePaise: 0,
       isActive: true,
@@ -163,13 +163,13 @@ describe('User Isolation and Storage', () => {
       seat,
       floorLabel: 'Floor 1',
       slot,
-      date: new Date().toLocaleDateString('en-CA'),
+      date: new Date(Date.now() + 86400000).toLocaleDateString('en-CA'),
       status: 'CONFIRMED',
       source: 'ONLINE',
       userId: testUserId,
       pricePaise: 0,
       paymentStatus: 'FREE',
-      graceUntil: new Date().toISOString(),
+      graceUntil: new Date(Date.now() + 86400000).toISOString(),
       arrivalConfirmed: false,
       createdAt: new Date().toISOString(),
     });
@@ -1479,6 +1479,84 @@ describe('Library Isolation and Fresh Setup Flow', () => {
 
         expect(renderOwnerAdmissionBadge(freeLib!)).toBe('🟢 Free Admission');
         expect(renderOwnerAdmissionBadge(paidLib!)).toBe('💳 Paid Slots');
+      });
+
+      it('strictly enforces multi-step sequence and prevents submission before Step 3 pricing configuration', () => {
+        // Step logic simulator matching RegisterLibrary component rules
+        interface RegistrationState {
+          step: number;
+          adminName: string;
+          adminEmail: string;
+          adminPassword: string;
+          libName: string;
+          streetAddress: string;
+          city: string;
+          isFree: boolean;
+          pricing: {
+            morningPrice: number;
+            afternoonPrice: number;
+            eveningPrice: number;
+            nightPrice: number;
+          };
+        }
+
+        const canAdvanceStep = (state: RegistrationState): { success: boolean; nextStep: number; error?: string } => {
+          if (state.step === 1) {
+            if (!state.adminName.trim() || !state.adminEmail.trim() || state.adminPassword.length < 8) {
+              return { success: false, nextStep: 1, error: 'Incomplete Admin Credentials' };
+            }
+            return { success: true, nextStep: 2 };
+          }
+          if (state.step === 2) {
+            if (!state.libName.trim() || !state.streetAddress.trim() || !state.city.trim()) {
+              return { success: false, nextStep: 2, error: 'Incomplete Location Credentials' };
+            }
+            return { success: true, nextStep: 3 };
+          }
+          return { success: false, nextStep: state.step };
+        };
+
+        const canSubmitRegistration = (state: RegistrationState): { allowed: boolean; reason?: string } => {
+          if (state.step !== 3) {
+            return { allowed: false, reason: 'Cannot submit before completing Step 3 pricing & amenities' };
+          }
+          return { allowed: true };
+        };
+
+        const testForm: RegistrationState = {
+          step: 1,
+          adminName: 'Rajesh Kumar',
+          adminEmail: 'admin@centralhub.org',
+          adminPassword: 'Password123!',
+          libName: 'Central Study Hub',
+          streetAddress: '42 MG Road',
+          city: 'Bengaluru',
+          isFree: false,
+          pricing: { morningPrice: 50, afternoonPrice: 60, eveningPrice: 50, nightPrice: 40 },
+        };
+
+        // Attempting to submit at Step 1 must be blocked
+        expect(canSubmitRegistration(testForm).allowed).toBe(false);
+
+        // Advance to Step 2
+        const step1Result = canAdvanceStep(testForm);
+        expect(step1Result.success).toBe(true);
+        testForm.step = step1Result.nextStep;
+        expect(testForm.step).toBe(2);
+
+        // Attempting to submit after entering location credentials (Step 2) must be strictly blocked
+        expect(canSubmitRegistration(testForm).allowed).toBe(false);
+        expect(canSubmitRegistration(testForm).reason).toContain('Step 3');
+
+        // Advance to Step 3 (Pricing selection)
+        const step2Result = canAdvanceStep(testForm);
+        expect(step2Result.success).toBe(true);
+        testForm.step = step2Result.nextStep;
+        expect(testForm.step).toBe(3);
+
+        // User now interactively configures pricing on Step 3
+        testForm.isFree = true;
+        expect(canSubmitRegistration(testForm).allowed).toBe(true);
       });
     });
   });

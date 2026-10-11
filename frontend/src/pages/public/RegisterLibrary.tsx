@@ -185,6 +185,9 @@ export const RegisterLibrary: React.FC = () => {
         handleAutoGeocode(true);
       }
       setStep(3);
+      if (typeof window !== 'undefined') {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      }
       return;
     }
   };
@@ -203,6 +206,12 @@ export const RegisterLibrary: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Guard: strictly ensure user is on Step 3 before permitting registration
+    if (step !== 3) {
+      console.warn('[RegisterLibrary] Submission blocked because current step is', step);
+      return;
+    }
 
     // 1. Validate Step 1 fields
     if (!adminName.trim()) {
@@ -539,10 +548,16 @@ export const RegisterLibrary: React.FC = () => {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            if (step < 3) {
-              handleNext();
-            } else {
+            if (step === 3) {
               handleSubmit(e);
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'TEXTAREA') {
+              e.preventDefault();
+              if (step < 3) {
+                handleNext();
+              }
             }
           }}
           className="space-y-4"
@@ -1123,9 +1138,10 @@ export const RegisterLibrary: React.FC = () => {
           <div className="flex items-center justify-between gap-3 pt-4 border-t border-slate-100">
             {step > 1 ? (
               <button
+                key="back-step-btn"
                 type="button"
-                onClick={() => setStep((s) => s - 1)}
-                className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1.5"
+                onClick={() => setStep((s) => Math.max(1, s - 1))}
+                className="py-2.5 px-4 rounded-xl border border-slate-200 text-slate-600 text-xs font-semibold hover:bg-slate-50 transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <ArrowLeft className="w-4 h-4" /> Back
               </button>
@@ -1133,17 +1149,27 @@ export const RegisterLibrary: React.FC = () => {
 
             {step < 3 ? (
               <button
+                key="next-step-btn"
                 type="button"
-                onClick={handleNext}
-                className="py-2.5 px-6 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md transition-all flex items-center gap-1.5"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleNext();
+                }}
+                className="py-2.5 px-6 rounded-xl bg-primary hover:bg-primary-hover text-white text-xs font-semibold shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
               >
                 Next Step <ArrowRight className="w-4 h-4" />
               </button>
             ) : (
               <button
-                type="submit"
+                key="submit-registration-btn"
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  handleSubmit(e);
+                }}
                 disabled={loading}
-                className="py-2.5 px-6 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-bold shadow-md shadow-accent/25 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                className="py-2.5 px-6 rounded-xl bg-accent hover:bg-accent-hover text-white text-xs font-bold shadow-md shadow-accent/25 transition-all flex items-center gap-1.5 disabled:opacity-50 cursor-pointer"
               >
                 {loading ? 'Submitting...' : 'Submit Registration'}
               </button>
