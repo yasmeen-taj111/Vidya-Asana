@@ -103,64 +103,60 @@ export const Register: React.FC = () => {
 
   return (
     <div className="max-w-md mx-auto my-12 px-4 sm:px-0">
-      <div className="bg-white rounded-3xl p-8 border border-slate-100 shadow-xl space-y-6">
-        <div className="text-center space-y-2">
-          <div className="w-12 h-12 rounded-2xl bg-primary/10 text-primary flex items-center justify-center mx-auto">
-            <UserPlus className="w-6 h-6" />
-          </div>
-          <h2 className="text-2xl font-bold text-slate-900">Student Sign Up</h2>
-          <p className="text-xs text-slate-500">Create an account to discover, customize and reserve study seats</p>
+      <div className="bg-white/95 backdrop-blur-md rounded-3xl p-8 sm:p-10 border border-slate-200/80 shadow-2xl shadow-primary/20 hover:shadow-primary/25 space-y-6 relative overflow-hidden transition-shadow">
+        <div className="text-center pt-1 pb-1">
+          <h2 className="text-3xl font-serif font-bold text-navy tracking-tight">Student Sign Up</h2>
         </div>
 
         <form onSubmit={handleRegister} className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Full Name</label>
+            <label className="block text-xs uppercase tracking-wider font-bold text-slate-700 mb-1.5">Full Name</label>
             <div className="relative">
-              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
                 type="text"
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Aarav Patel"
-                className="w-full text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                className="w-full text-xs pl-10 pr-4 py-3 rounded-xl border-2 border-slate-100 bg-slate-50/60 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Email Address</label>
+            <label className="block text-xs uppercase tracking-wider font-bold text-slate-700 mb-1.5">Email Address</label>
             <div className="relative">
-              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="aarav@college.edu"
-                className="w-full text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                className="w-full text-xs pl-10 pr-4 py-3 rounded-xl border-2 border-slate-100 bg-slate-50/60 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Phone Number (Optional)</label>
+            <label className="block text-xs uppercase tracking-wider font-bold text-slate-700 mb-1.5">Phone Number (Optional)</label>
             <div className="relative">
-              <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
                 type="tel"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+91 98765 43210"
-                className="w-full text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                className="w-full text-xs pl-10 pr-4 py-3 rounded-xl border-2 border-slate-100 bg-slate-50/60 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Password (Min 8 characters)</label>
+            <label className="block text-xs uppercase tracking-wider font-bold text-slate-700 mb-1.5">Password (Min 8 characters)</label>
             <div className="relative">
-              <Key className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+              <Key className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
               <input
                 type="password"
                 required
@@ -168,7 +164,7 @@ export const Register: React.FC = () => {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition-all"
+                className="w-full text-xs pl-10 pr-4 py-3 rounded-xl border-2 border-slate-100 bg-slate-50/60 focus:bg-white focus:border-primary focus:ring-4 focus:ring-primary/10 outline-none transition-all"
               />
             </div>
           </div>
@@ -176,7 +172,7 @@ export const Register: React.FC = () => {
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-all shadow-md shadow-primary/20 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-xl bg-primary hover:bg-primary-hover active:bg-[#1d44b8] active:scale-[0.98] text-white font-bold text-xs uppercase tracking-widest transition-all shadow-lg shadow-primary/25 disabled:opacity-50 flex items-center justify-center gap-2 transform hover:-translate-y-0.5"
           >
             {loading ? 'Creating Account...' : 'Complete Registration'}
           </button>
@@ -184,7 +180,7 @@ export const Register: React.FC = () => {
 
         <p className="text-center text-xs text-slate-500">
           Already registered?{' '}
-          <Link to="/login" className="font-semibold text-primary hover:underline">
+          <Link to="/login" className="font-bold text-accent hover:underline">
             Sign in
           </Link>
         </p>

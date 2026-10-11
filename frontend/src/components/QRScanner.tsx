@@ -151,8 +151,10 @@ export const QRScanner: React.FC = () => {
   return (
     <div className="max-w-xl mx-auto space-y-6">
       <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl text-center">
-        <h3 className="text-xl font-bold text-slate-900 mb-1">QR Entry Scanner</h3>
-        <p className="text-xs text-slate-500 mb-4">
+        <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight mb-2">
+          QR Entry Scanner
+        </h2>
+        <p className="text-xs text-slate-500 mb-6">
           Scan user entry QR passes with the camera, upload a saved pass, or enter the reservation code.
         </p>
 

@@ -127,10 +127,10 @@ export const Slots: React.FC = () => {
       {/* Page Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black text-slate-900 flex items-center gap-2">
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <Clock className="w-6 h-6 text-primary" />
             Closures & Unbookable Intervals
-          </h1>
+          </h2>
           <p className="text-xs text-slate-500 mt-1">
             Configure times when the library is closed. These intervals are rendered as blackout zones on the student slider and block bookings.
           </p>

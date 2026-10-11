@@ -89,14 +89,18 @@ export const Profile: React.FC = () => {
   }
 
   return (
-    <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 border border-slate-100 shadow-xl space-y-6">
-      <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-        <div>
-          <h3 className="font-bold text-lg text-slate-900">Library Profile & Amenities</h3>
-          <p className="text-xs text-slate-500">Configure your public discovery card and campus facilities</p>
+    <div className="max-w-2xl mx-auto bg-white rounded-3xl p-8 sm:p-10 border border-slate-200/80 shadow-2xl shadow-primary/20 space-y-6 relative transition-shadow">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-5 border-b border-slate-100">
+        <div className="space-y-1">
+          <h3 className="font-serif font-bold text-2xl sm:text-3xl text-navy tracking-tight">
+            Library Profile & Amenities
+          </h3>
+          <p className="text-xs text-slate-500 font-light">
+            Configure your public discovery card and campus facilities
+          </p>
         </div>
         <span
-          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+          className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider self-start sm:self-auto shrink-0 ${
             library.status === 'APPROVED'
               ? 'bg-emerald-100 text-emerald-800'
               : library.status === 'REJECTED'
@@ -108,52 +112,61 @@ export const Profile: React.FC = () => {
         </span>
       </div>
 
-      <form onSubmit={handleSave} className="space-y-4">
+      <form onSubmit={handleSave} className="space-y-6">
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Library Name</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+            Library Name
+          </label>
           <input
             type="text"
             required
             value={library.name}
             onChange={(e) => setLibrary({ ...library, name: e.target.value })}
-            className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none font-bold"
+            className="w-full text-sm px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none font-bold text-slate-900 transition-all"
           />
         </div>
 
         <div>
-          <label className="block text-xs font-semibold text-slate-700 mb-1">Description</label>
+          <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+            Description
+          </label>
           <textarea
-            rows={3}
+            rows={4}
             value={library.description || ''}
             onChange={(e) => setLibrary({ ...library, description: e.target.value })}
-            className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
+            placeholder="Tell students about your study environment, natural lighting, quiet rules, and campus facilities."
+            className="w-full text-sm px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none text-slate-800 leading-relaxed transition-all"
           />
         </div>
 
-        <div className="space-y-3 pt-1">
-          <div className="grid grid-cols-3 gap-2">
-            <div className="col-span-2">
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Address / Landmark</label>
-              <input
-                type="text"
-                required
-                value={library.address}
-                onChange={(e) => setLibrary({ ...library, address: e.target.value })}
-                className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">City</label>
-              <input
-                type="text"
-                required
-                value={library.city}
-                onChange={(e) => setLibrary({ ...library, city: e.target.value })}
-                className="w-full text-xs px-3.5 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none"
-              />
-            </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+              Street Address
+            </label>
+            <input
+              type="text"
+              required
+              value={library.address}
+              onChange={(e) => setLibrary({ ...library, address: e.target.value })}
+              className="w-full text-sm px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none text-slate-800 transition-all"
+            />
           </div>
+          <div>
+            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-2">
+              City
+            </label>
+            <input
+              type="text"
+              required
+              value={library.city}
+              onChange={(e) => setLibrary({ ...library, city: e.target.value })}
+              className="w-full text-sm px-4 py-3 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none text-slate-800 transition-all"
+            />
+          </div>
+        </div>
 
+        <div className="space-y-3 pt-2">
           <div className="flex items-center justify-between">
             <div className="text-[11px] text-slate-500">
               Pins your library on student discovery maps accurately
@@ -182,10 +195,12 @@ export const Profile: React.FC = () => {
           </div>
         </div>
 
-        <div className="space-y-2 pt-2 border-t border-slate-100">
-          <span className="text-xs font-semibold text-slate-700 block">Library Amenities:</span>
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+        <div className="space-y-3 pt-4 border-t border-slate-100">
+          <span className="text-xs font-bold uppercase tracking-wider text-slate-700 block">
+            Library Amenities & Verification:
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs sm:text-sm font-semibold">
+            <label className="flex items-center gap-3 p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-primary/40 cursor-pointer transition-all">
               <input
                 type="checkbox"
                 checked={library.amenities.ac}
@@ -195,12 +210,12 @@ export const Profile: React.FC = () => {
                     amenities: { ...library.amenities, ac: e.target.checked },
                   })
                 }
-                className="rounded text-primary"
+                className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer"
               />
-              <span>Air Conditioning</span>
+              <span className="text-slate-800">Air Conditioning</span>
             </label>
 
-            <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+            <label className="flex items-center gap-3 p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-primary/40 cursor-pointer transition-all">
               <input
                 type="checkbox"
                 checked={library.amenities.wifi}
@@ -210,12 +225,12 @@ export const Profile: React.FC = () => {
                     amenities: { ...library.amenities, wifi: e.target.checked },
                   })
                 }
-                className="rounded text-primary"
+                className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer"
               />
-              <span>Fast WiFi</span>
+              <span className="text-slate-800">Fast WiFi</span>
             </label>
 
-            <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+            <label className="flex items-center gap-3 p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-primary/40 cursor-pointer transition-all">
               <input
                 type="checkbox"
                 checked={library.amenities.powerOutlets}
@@ -225,12 +240,12 @@ export const Profile: React.FC = () => {
                     amenities: { ...library.amenities, powerOutlets: e.target.checked },
                   })
                 }
-                className="rounded text-primary"
+                className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer"
               />
-              <span>Power Sockets</span>
+              <span className="text-slate-800">Power Sockets</span>
             </label>
 
-            <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+            <label className="flex items-center gap-3 p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-primary/40 cursor-pointer transition-all">
               <input
                 type="checkbox"
                 checked={library.amenities.cctv}
@@ -240,12 +255,12 @@ export const Profile: React.FC = () => {
                     amenities: { ...library.amenities, cctv: e.target.checked },
                   })
                 }
-                className="rounded text-primary"
+                className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer"
               />
-              <span>CCTV Monitoring</span>
+              <span className="text-slate-800">CCTV Monitoring</span>
             </label>
 
-            <label className="flex items-center gap-2 p-3 rounded-xl border border-slate-200 bg-slate-50 cursor-pointer">
+            <label className="flex items-center gap-3 p-3.5 rounded-2xl border border-slate-200/90 bg-slate-50/70 hover:bg-white hover:border-primary/40 cursor-pointer transition-all">
               <input
                 type="checkbox"
                 checked={library.amenities.lockers}
@@ -255,20 +270,22 @@ export const Profile: React.FC = () => {
                     amenities: { ...library.amenities, lockers: e.target.checked },
                   })
                 }
-                className="rounded text-primary"
+                className="w-4 h-4 rounded text-primary focus:ring-primary/20 cursor-pointer"
               />
-              <span>Storage Lockers</span>
+              <span className="text-slate-800">Storage Lockers</span>
             </label>
           </div>
         </div>
 
-        <button
-          type="submit"
-          disabled={saving}
-          className="w-full py-3 rounded-xl bg-primary hover:bg-primary-hover text-white font-semibold text-xs transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50"
-        >
-          {saving ? 'Saving Profile...' : 'Save Profile Changes'}
-        </button>
+        <div className="pt-2">
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full py-4 rounded-2xl bg-primary hover:bg-primary-hover active:scale-[0.99] text-white font-extrabold text-xs sm:text-sm uppercase tracking-wider transition-all shadow-xl shadow-primary/25 flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+          >
+            {saving ? 'Saving Profile Changes...' : 'Save Profile Changes'}
+          </button>
+        </div>
       </form>
     </div>
   );

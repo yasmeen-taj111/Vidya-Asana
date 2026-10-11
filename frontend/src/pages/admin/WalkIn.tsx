@@ -181,12 +181,9 @@ export const WalkIn: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <UserPlus className="w-5 h-5 text-teal" /> Walk-In Ticketing & Early Walk-Outs
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            Walk-In Ticketing & Early Walk-Outs
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Click an available green desk to assign an instant walk-in pass, or click an occupied desk to release it.
-          </p>
         </div>
 
         {/* Date and Slot selection ribbon */}

@@ -121,6 +121,32 @@ export const OwnerDashboard: React.FC = () => {
 
   return (
     <div className="space-y-8">
+      {/* Welcome Hero Banner (Matching User Dashboard) */}
+      <div className="bg-gradient-to-r from-navy via-navy to-navy-dark text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+        {/* Ambient Glow */}
+        <div className="absolute top-0 right-0 w-96 h-96 bg-primary/20 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-accent/20 rounded-full blur-2xl pointer-events-none" />
+
+        <div className="space-y-2 relative z-10 max-w-xl">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/15 text-[11px] font-bold text-accent tracking-wider uppercase backdrop-blur-xs">
+            Platform Management Console
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-serif font-bold text-white tracking-tight">
+            Welcome back, Platform Director!
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-300 font-light leading-relaxed">
+            Review and verify pending library listing applications, inspect floor capacities, and manage system-wide seat allocation.
+          </p>
+        </div>
+
+        <div className="relative z-10 shrink-0 flex items-center gap-3">
+          <div className="px-6 py-3.5 rounded-2xl bg-white/10 backdrop-blur-md border border-white/15 text-center">
+            <span className="text-[10px] text-slate-300 uppercase font-bold tracking-wider block">Pending Review</span>
+            <span className="text-xl font-black text-amber-400 font-mono">{stats?.pending || 0} Libraries</span>
+          </div>
+        </div>
+      </div>
+
       {/* Platform Stats Cards */}
       {stats && (
         <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
@@ -152,51 +178,51 @@ export const OwnerDashboard: React.FC = () => {
       )}
 
       {/* Main Libraries Management Panel */}
-      <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
+      <div className="bg-white rounded-3xl sm:rounded-[32px] border-2 border-primary/15 shadow-2xl shadow-primary/5 overflow-hidden ring-1 ring-slate-900/5">
         {/* Search & Filter Header */}
         <div className="p-6 border-b border-slate-100 flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="relative">
+          <div className="flex flex-wrap items-center gap-3 flex-1">
+            <div className="relative min-w-[240px] flex-1 sm:flex-initial">
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search library name or city..."
-                className="text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 focus:border-primary outline-none w-64"
+                className="w-full text-xs pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 bg-slate-50/50 focus:bg-white focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none transition-all"
               />
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl text-xs">
+              <div className="flex items-center gap-1.5 bg-slate-100/90 p-1.5 rounded-full text-xs font-bold border border-slate-200/70 shadow-inner">
                 <button
                   onClick={() => setFilterStatus('')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterStatus === '' ? 'bg-white shadow text-slate-900 font-bold' : 'text-slate-600'
+                  className={`px-4 py-1.5 rounded-full transition-all ${
+                    filterStatus === '' ? 'bg-white shadow text-slate-900 font-extrabold' : 'text-slate-600 hover:text-navy'
                   }`}
                 >
-                  All Status
+                  All
                 </button>
                 <button
                   onClick={() => setFilterStatus('PENDING')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterStatus === 'PENDING' ? 'bg-amber-500 text-white shadow font-bold' : 'text-slate-600'
+                  className={`px-4 py-1.5 rounded-full transition-all ${
+                    filterStatus === 'PENDING' ? 'bg-amber-500 text-white shadow font-extrabold' : 'text-slate-600 hover:text-navy'
                   }`}
                 >
                   Pending
                 </button>
                 <button
                   onClick={() => setFilterStatus('APPROVED')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterStatus === 'APPROVED' ? 'bg-emerald-600 text-white shadow font-bold' : 'text-slate-600'
+                  className={`px-4 py-1.5 rounded-full transition-all ${
+                    filterStatus === 'APPROVED' ? 'bg-emerald-600 text-white shadow font-extrabold' : 'text-slate-600 hover:text-navy'
                   }`}
                 >
                   Approved
                 </button>
                 <button
                   onClick={() => setFilterStatus('REJECTED')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterStatus === 'REJECTED' ? 'bg-rose-600 text-white shadow font-bold' : 'text-slate-600'
+                  className={`px-4 py-1.5 rounded-full transition-all ${
+                    filterStatus === 'REJECTED' ? 'bg-rose-600 text-white shadow font-extrabold' : 'text-slate-600 hover:text-navy'
                   }`}
                 >
                   Rejected
@@ -204,27 +230,27 @@ export const OwnerDashboard: React.FC = () => {
               </div>
 
               {/* Admission Filter */}
-              <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl text-xs">
+              <div className="flex items-center gap-1 bg-slate-100/90 p-1.5 rounded-full text-xs font-bold border border-slate-200/70 shadow-inner">
                 <button
                   onClick={() => setFilterAdmission('ALL')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterAdmission === 'ALL' ? 'bg-white shadow text-slate-900 font-bold' : 'text-slate-600'
+                  className={`px-3.5 py-1.5 rounded-full transition-all ${
+                    filterAdmission === 'ALL' ? 'bg-white shadow text-slate-900 font-extrabold' : 'text-slate-600 hover:text-navy'
                   }`}
                 >
                   All Admissions
                 </button>
                 <button
                   onClick={() => setFilterAdmission('FREE')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterAdmission === 'FREE' ? 'bg-emerald-600 text-white shadow font-bold' : 'text-slate-600 hover:text-emerald-700'
+                  className={`px-3.5 py-1.5 rounded-full transition-all ${
+                    filterAdmission === 'FREE' ? 'bg-emerald-600 text-white shadow font-extrabold' : 'text-slate-600 hover:text-emerald-700'
                   }`}
                 >
                   🟢 Free Only
                 </button>
                 <button
                   onClick={() => setFilterAdmission('PAID')}
-                  className={`px-3 py-1.5 rounded-lg font-medium transition-all ${
-                    filterAdmission === 'PAID' ? 'bg-primary text-white shadow font-bold' : 'text-slate-600 hover:text-primary'
+                  className={`px-3.5 py-1.5 rounded-full transition-all ${
+                    filterAdmission === 'PAID' ? 'bg-primary text-white shadow font-extrabold' : 'text-slate-600 hover:text-primary'
                   }`}
                 >
                   💳 Paid Only
@@ -237,7 +263,7 @@ export const OwnerDashboard: React.FC = () => {
         {/* Libraries Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50/70 text-slate-500 font-semibold uppercase tracking-wider border-b border-slate-100">
+            <thead className="bg-slate-50/80 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-100">
               <tr>
                 <th className="py-4 px-6">Library Details</th>
                 <th className="py-4 px-6">Location</th>
@@ -249,13 +275,13 @@ export const OwnerDashboard: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {libraries.map((lib) => (
-                <tr key={lib.id} className="hover:bg-slate-50/50 transition-colors">
+                <tr key={lib.id} className="hover:bg-slate-50/60 transition-colors">
                   <td className="py-4 px-6">
                     <div className="font-bold text-sm text-slate-900">{lib.name}</div>
                     <div className="text-[11px] text-slate-400 font-mono">{lib.contactEmail}</div>
                   </td>
                   <td className="py-4 px-6">
-                    <div className="text-slate-700">{lib.address}</div>
+                    <div className="text-slate-700 font-medium">{lib.address}</div>
                     <div className="text-[11px] text-slate-400">{lib.city}</div>
                   </td>
                   <td className="py-4 px-6">
@@ -270,17 +296,17 @@ export const OwnerDashboard: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-4 px-6">
-                    <span className="font-semibold text-slate-900">{lib.totalSeats} Desks</span>
+                    <span className="font-bold text-slate-900">{lib.totalSeats} Desks</span>
                     <span className="text-slate-400 block text-[11px]">{lib.floorCount} Floor(s)</span>
                   </td>
                   <td className="py-4 px-6">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
+                      className={`px-3 py-1 rounded-full text-[10px] font-extrabold uppercase tracking-wider ${
                         lib.status === 'APPROVED'
-                          ? 'bg-emerald-100 text-emerald-800'
+                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           : lib.status === 'PENDING'
-                          ? 'bg-amber-100 text-amber-800'
-                          : 'bg-rose-100 text-rose-800'
+                          ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                          : 'bg-rose-100 text-rose-800 border border-rose-200'
                       }`}
                     >
                       {lib.status}
@@ -289,7 +315,7 @@ export const OwnerDashboard: React.FC = () => {
                   <td className="py-4 px-6 text-right">
                     <button
                       onClick={() => handleSelectLibrary(lib)}
-                      className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs transition-colors"
+                      className="px-4 py-2 rounded-xl bg-primary/10 hover:bg-primary text-primary hover:text-white font-bold text-xs transition-all shadow-xs hover:shadow-md cursor-pointer"
                     >
                       Inspect & Review
                     </button>

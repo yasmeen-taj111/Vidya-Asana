@@ -440,10 +440,10 @@ export const RegisterLibrary: React.FC = () => {
   };
 
   return (
-    <div className="max-w-2xl mx-auto my-4 sm:my-8 px-4 sm:px-0">
-      <div className="bg-white rounded-3xl p-6 sm:p-8 border border-slate-100 shadow-xl space-y-6">
+    <div className="max-w-2xl mx-auto my-6 sm:my-10 px-4 sm:px-0">
+      <div className="bg-white/95 backdrop-blur-md rounded-3xl p-6 sm:p-8 border border-slate-200/80 shadow-2xl shadow-primary/15 space-y-6 relative overflow-hidden transition-shadow">
         {/* Header */}
-        <div className="text-center space-y-2 relative">
+        <div className="text-center space-y-2 relative pt-1">
           <button
             type="button"
             onClick={fillSampleData}
@@ -456,7 +456,7 @@ export const RegisterLibrary: React.FC = () => {
           <div className="w-12 h-12 rounded-2xl bg-navy text-white flex items-center justify-center mx-auto shadow-md">
             <Building className="w-6 h-6 text-accent" />
           </div>
-          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">List Your Library</h2>
+          <h2 className="text-3xl sm:text-4xl font-serif font-bold text-navy tracking-tight">List Your Library</h2>
           <p className="text-xs text-slate-500">
             Join the Vidya Asana network to automate reservations and prevent no-shows
           </p>

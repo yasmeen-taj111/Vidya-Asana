@@ -153,56 +153,57 @@ export const UserLayout: React.FC = () => {
   ];
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 pb-16 md:pb-0">
-      {/* Top Navbar */}
-      <header className="sticky top-0 z-30 bg-white/80 backdrop-blur-md border-b border-slate-100">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-8">
-            <Link to="/app" className="flex items-center gap-2.5 font-bold text-xl text-navy">
-              <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-md shadow-primary/20">
-                <BookOpen className="w-5 h-5" />
-              </div>
-              <span>Vidya<span className="text-accent font-extrabold">Asana</span></span>
-            </Link>
+    <div className="min-h-screen flex flex-col bg-slate-50/50 text-slate-900 pb-16 md:pb-0">
+      {/* Bolder, Curved Full-Round Floating Top Navbar */}
+      <header className="sticky top-3.5 z-40 px-2 sm:px-4 w-full max-w-[98vw] 2xl:max-w-[1550px] mx-auto transition-all">
+        <div className="bg-white/95 backdrop-blur-md border-2 border-slate-200 shadow-md shadow-slate-900/5 rounded-full px-4 sm:px-5 xl:px-6 py-2 flex items-center justify-between gap-2 lg:gap-4 xl:gap-6">
+          {/* Left: Logo */}
+          <Link to="/app" className="flex items-center gap-2.5 tracking-tight group shrink-0">
+            <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center text-white shadow-md shadow-primary/30 group-hover:scale-105 transition-transform">
+              <BookOpen className="w-5 h-5" />
+            </div>
+            <span className="font-extrabold text-[22px] xl:text-[23px] text-navy">
+              Vidya<span className="text-accent font-black">Asana</span>
+            </span>
+          </Link>
 
-            <nav className="hidden lg:flex items-center gap-1">
-              {navLinks.map((item) => {
-                const Icon = item.icon;
-                const active = location.pathname === item.path;
-                return (
-                  <Link
-                    key={item.path}
-                    to={item.path}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all ${
-                      active
-                        ? 'bg-primary/10 text-primary'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{item.label}</span>
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
+          {/* Center: Navigation Buttons */}
+          <nav className="hidden lg:flex items-center justify-center gap-1 xl:gap-2 flex-1 mx-2">
+            {navLinks.map((item) => {
+              const active = location.pathname === item.path;
+              return (
+                <Link
+                  key={item.path}
+                  to={item.path}
+                  className={`px-3 xl:px-4 py-1.5 rounded-full text-[14px] xl:text-[15px] font-bold whitespace-nowrap transition-all ${
+                    active
+                      ? 'bg-primary text-white shadow-sm shadow-primary/30'
+                      : 'text-slate-700 hover:text-navy hover:bg-slate-100'
+                  }`}
+                >
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </nav>
 
-          <div className="flex items-center gap-3">
+          {/* Right: User Profile & Actions */}
+          <div className="flex items-center gap-2.5 sm:gap-3 xl:gap-3.5 shrink-0">
             <NotificationBell />
 
-            <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+            <div className="h-5 w-px bg-slate-200 hidden sm:block" />
 
-            <div className="hidden sm:block text-right">
-              <p className="text-xs font-semibold text-slate-900 leading-tight">{user?.name || 'Student'}</p>
-              <p className="text-[10px] text-slate-500 font-mono">{user?.email}</p>
+            <div className="hidden sm:block text-right whitespace-nowrap max-w-[150px] xl:max-w-none">
+              <p className="text-[14px] xl:text-[15px] font-bold text-slate-900 leading-tight truncate">{user?.name || 'Student'}</p>
+              <p className="text-[11px] text-slate-500 font-mono font-medium leading-none pt-0.5 truncate">{user?.email}</p>
             </div>
 
             <button
               onClick={handleLogout}
-              className="p-2 rounded-xl text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+              className="p-2 rounded-full text-slate-600 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0"
               title="Logout"
             >
-              <LogOut className="w-4 h-4" />
+              <LogOut className="w-4 h-4 stroke-[2.25]" />
             </button>
           </div>
         </div>

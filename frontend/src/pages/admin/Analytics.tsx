@@ -96,12 +96,9 @@ export const Analytics: React.FC = () => {
       {/* Header and Controls */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-primary" /> Facility Utilization Intelligence
+          <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            Facility Utilization Intelligence
           </h2>
-          <p className="text-xs text-slate-500 mt-1">
-            Real-time occupancy metrics and seat utilization based on your Interactive Floor & Seat Grid configurations.
-          </p>
         </div>
 
         {/* Download CSV / PDF Buttons */}
